@@ -239,6 +239,7 @@ async function initDB() {
       quantity NUMERIC NOT NULL DEFAULT 1,
       bill_date DATE NOT NULL,
       expiry_date DATE,
+      unit_price NUMERIC,
       amount NUMERIC NOT NULL DEFAULT 0,
       image_path TEXT,
       remarks TEXT DEFAULT '',
@@ -250,8 +251,10 @@ async function initDB() {
   `);
   // Safety net in case "bills" already existed on your database from an
   // earlier deploy of this feature, before the Recycle Bin support column
-  // was added - same pattern used for the legacy scans/users tables.
+  // (and later, unit_price) was added - same pattern used for the legacy
+  // scans/users tables.
   await query(`ALTER TABLE bills ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ`);
+  await query(`ALTER TABLE bills ADD COLUMN IF NOT EXISTS unit_price NUMERIC`);
 
   await seed();
   await ensureSuperAdmin();

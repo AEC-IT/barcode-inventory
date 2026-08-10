@@ -165,7 +165,7 @@
      uncertain slips through unnoticed. */
   .ai-item-row{display:grid;grid-template-columns:1fr;gap:8px;align-items:end;background:#f8fafc;border-radius:8px;padding:10px;margin-bottom:8px;}
   @media (min-width: 641px) {
-    .ai-item-row{grid-template-columns:1fr 90px 110px auto;}
+    .ai-item-row{grid-template-columns:1fr 80px 110px 110px auto;}
   }
   .ai-item-row label{font-size:11px;font-weight:600;color:#6b7280;margin:0 0 3px;display:block;}
   .ai-item-row input{width:100%;}
@@ -458,6 +458,7 @@
         <datalist id="productNamesList"></datalist>
         <input type="text" id="billVendorName" placeholder="Vendor (optional)">
         <input type="number" id="billQuantity" placeholder="Qty" value="1" min="0" style="max-width:100px;">
+        <input type="number" id="billUnitPrice" placeholder="Unit Price (optional)" min="0" step="0.01">
         <input type="number" id="billAmount" placeholder="Amount" min="0" step="0.01">
       </div>
       <div class="toolbar">
@@ -1086,6 +1087,7 @@ async function autoSaveScannedBill(draft) {
       fd.append('vendor_name', draft.vendor_name || '');
       fd.append('quantity', item.quantity || 1);
       fd.append('bill_date', draft.bill_date);
+      if (item.unit_price != null) fd.append('unit_price', item.unit_price);
       fd.append('amount', item.amount || 0);
       if (vertical_id) fd.append('vertical_id', vertical_id);
       if (lastScannedBillFile) fd.append('photo', lastScannedBillFile);
@@ -1136,6 +1138,10 @@ function addAiLineItemRow(item) {
       <input type="number" class="ai-qty" min="0" value="${item ? item.quantity : 1}">
     </div>
     <div>
+      <label>Unit Price</label>
+      <input type="number" class="ai-unit-price" min="0" step="0.01" value="${item && item.unit_price != null ? item.unit_price : ''}">
+    </div>
+    <div>
       <label>Amount</label>
       <input type="number" class="ai-amount ${amountLow ? 'low-confidence' : ''}" min="0" step="0.01" value="${item && item.amount != null ? item.amount : ''}">
     </div>
@@ -1166,6 +1172,7 @@ async function saveAiReview() {
       fd.append('vendor_name', vendor_name);
       fd.append('quantity', row.querySelector('.ai-qty').value || 1);
       fd.append('bill_date', bill_date);
+      fd.append('unit_price', row.querySelector('.ai-unit-price').value);
       fd.append('amount', row.querySelector('.ai-amount').value || 0);
       if (vertical_id) fd.append('vertical_id', vertical_id);
       if (lastScannedBillFile) fd.append('photo', lastScannedBillFile);
@@ -1200,6 +1207,7 @@ async function addBill() {
   fd.append('quantity', document.getElementById('billQuantity').value || 1);
   fd.append('bill_date', bill_date);
   fd.append('expiry_date', document.getElementById('billExpiryDate').value);
+  fd.append('unit_price', document.getElementById('billUnitPrice').value);
   fd.append('amount', amount);
   if (vertical_id) fd.append('vertical_id', vertical_id);
   const photoFile = document.getElementById('billPhoto').files[0];
@@ -1208,7 +1216,7 @@ async function addBill() {
   try {
     await api('/api/bills', { method: 'POST', body: fd });
     toast('Bill added');
-    ['billAssetName','billVendorName','billExpiryDate','billPhoto'].forEach((id) => document.getElementById(id).value = '');
+    ['billAssetName','billVendorName','billExpiryDate','billPhoto','billUnitPrice'].forEach((id) => document.getElementById(id).value = '');
     document.getElementById('billQuantity').value = 1;
     document.getElementById('billAmount').value = '';
     loadBills();
@@ -1294,6 +1302,10 @@ function renderBillsLedger() {
           <div class="bill-field">
             <span class="lbl">Expiry</span>
             <input type="date" value="${b.expiry_date ? String(b.expiry_date).slice(0,10) : ''}" data-id="${b.id}" data-field="expiry_date" onchange="saveBillField(this)">
+          </div>
+          <div class="bill-field">
+            <span class="lbl">Unit Price</span>
+            <input type="number" value="${b.unit_price != null ? b.unit_price : ''}" data-id="${b.id}" data-field="unit_price" onblur="saveBillField(this)" onkeydown="if(event.key==='Enter')this.blur()">
           </div>
           <div class="bill-field amount">
             <span class="lbl">Amount</span>
@@ -1384,6 +1396,7 @@ function printBillsLedger() {
       <td>${esc(b.asset_name)}</td>
       <td>${esc(b.vendor_name || '-')}</td>
       <td>${b.quantity}</td>
+      <td style="text-align:right;">${b.unit_price != null ? Number(b.unit_price).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</td>
       <td style="text-align:right;">${Number(b.amount).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
     </tr>`).join('');
   const total = billsCache.reduce((s, b) => s + Number(b.amount), 0);
@@ -1396,6 +1409,7 @@ function printBillsLedger() {
         <thead><tr style="text-align:left;border-bottom:2px solid #111;">
           <th style="padding:6px 8px;">Bill Date</th><th style="padding:6px 8px;">Product</th>
           <th style="padding:6px 8px;">Vendor</th><th style="padding:6px 8px;">Qty</th>
+          <th style="padding:6px 8px;text-align:right;">Unit Price</th>
           <th style="padding:6px 8px;text-align:right;">Amount</th>
         </tr></thead>
         <tbody>${rows}</tbody>

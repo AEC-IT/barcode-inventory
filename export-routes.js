@@ -97,6 +97,7 @@ const BILL_COLUMNS = [
   { header: 'Business', key: 'vertical_name', width: 16 },
   { header: 'Vendor', key: 'vendor_name', width: 16 },
   { header: 'Qty', key: 'quantity', width: 8 },
+  { header: 'Unit Price', key: 'unit_price', width: 12 },
   { header: 'Amount', key: 'amount', width: 12 },
   { header: 'Expiry', key: 'expiry_date', width: 14 },
   { header: 'Remarks', key: 'remarks', width: 22 }
@@ -201,18 +202,18 @@ router.get('/bills.pdf', requireVerticalAdmin, async (req, res, next) => {
     res.setHeader('Content-Disposition', 'attachment; filename="bills.pdf"');
     doc.pipe(res);
 
-    const colX = [30, 110, 310, 440, 570, 630, 700];
-    const colW = [75, 195, 125, 125, 55, 65, 95];
+    const colX = [30, 105, 290, 405, 500, 545, 610, 675];
+    const colW = [70, 180, 110, 90, 40, 60, 60, 90];
     let total = 0;
     rows.forEach((b) => { total += Number(b.amount); });
     drawTable(
       doc,
       `AEC Group - Purchase Bills Ledger (Total: ${total.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})})`,
-      ['Bill Date', 'Product', 'Business', 'Vendor', 'Qty', 'Amount', 'Expiry'],
+      ['Bill Date', 'Product', 'Business', 'Vendor', 'Qty', 'Unit Price', 'Amount', 'Expiry'],
       colX,
       colW,
       rows,
-      (b) => [b.bill_date, b.asset_name, b.vertical_name, b.vendor_name, b.quantity, b.amount, b.expiry_date || '-']
+      (b) => [b.bill_date, b.asset_name, b.vertical_name, b.vendor_name, b.quantity, b.unit_price ?? '-', b.amount, b.expiry_date || '-']
     );
 
     doc.end();

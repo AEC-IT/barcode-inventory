@@ -116,7 +116,7 @@ router.post('/', upload.single('photo'), async (req, res, next) => {
   try {
     const user = req.session.user;
     const {
-      asset_name, vendor_name, quantity, bill_date, expiry_date, amount, remarks,
+      asset_name, vendor_name, quantity, bill_date, expiry_date, unit_price, amount, remarks,
       vertical_id: requestedVerticalId
     } = req.body || {};
 
@@ -133,12 +133,14 @@ router.post('/', upload.single('photo'), async (req, res, next) => {
     }
 
     const image_path = fileToDataUrl(req.file) || null;
+    const unitPriceVal = unit_price !== undefined && unit_price !== '' && !Number.isNaN(Number(unit_price))
+      ? Number(unit_price) : null;
     const { rows } = await query(
-      `INSERT INTO bills (vertical_id, asset_name, vendor_name, quantity, bill_date, expiry_date, amount, image_path, remarks, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+      `INSERT INTO bills (vertical_id, asset_name, vendor_name, quantity, bill_date, expiry_date, unit_price, amount, image_path, remarks, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
       [
         vertical_id, String(asset_name).trim(), vendor_name || '', Number(quantity) || 1,
-        bill_date, expiry_date || null, Number(amount), image_path, remarks || '', user.username
+        bill_date, expiry_date || null, unitPriceVal, Number(amount), image_path, remarks || '', user.username
       ]
     );
     await logAudit({
@@ -164,7 +166,7 @@ router.put('/:id', upload.single('photo'), async (req, res, next) => {
       return res.status(403).json({ error: 'This bill belongs to a different business vertical' });
     }
 
-    const { asset_name, vendor_name, quantity, bill_date, expiry_date, amount, remarks } = req.body || {};
+    const { asset_name, vendor_name, quantity, bill_date, expiry_date, unit_price, amount, remarks } = req.body || {};
     const uploadedPhoto = fileToDataUrl(req.file);
     const fields = [];
     const params = [];
@@ -177,6 +179,7 @@ router.put('/:id', upload.single('photo'), async (req, res, next) => {
     if (quantity !== undefined) set('quantity', quantity === '' || Number.isNaN(Number(quantity)) ? 1 : Number(quantity));
     if (bill_date !== undefined) set('bill_date', bill_date);
     if (expiry_date !== undefined) set('expiry_date', expiry_date || null);
+    if (unit_price !== undefined) set('unit_price', unit_price === '' || Number.isNaN(Number(unit_price)) ? null : Number(unit_price));
     if (amount !== undefined) set('amount', amount === '' || Number.isNaN(Number(amount)) ? 0 : Number(amount));
     if (remarks !== undefined) set('remarks', remarks);
     if (uploadedPhoto !== undefined) set('image_path', uploadedPhoto);
