@@ -70,7 +70,7 @@ router.get('/', async (req, res, next) => {
 
     const { rows: lowStockAssets } = await query(
       `SELECT a.*, ve.name AS vertical_name FROM assets a JOIN verticals ve ON a.vertical_id = ve.id
-       WHERE a.deleted_at IS NULL AND a.quantity > 0 AND a.quantity <= ${LOW_STOCK_THRESHOLD}
+       WHERE a.deleted_at IS NULL AND a.quantity > 0 AND a.quantity <= COALESCE(a.low_stock_threshold, ${LOW_STOCK_THRESHOLD})
        ${assetVerticalClause}
        ORDER BY a.quantity ASC`,
       assetParams

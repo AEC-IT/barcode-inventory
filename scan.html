@@ -151,19 +151,22 @@
       </div>
       <label>Asset Name <span class="required-mark">*</span></label>
       <input type="text" id="newName" required>
-      <label>Serial Number <span class="required-mark">*</span></label>
-      <input type="text" id="newSerial" required>
-      <div class="field-hint">Every asset needs a unique serial number - duplicates are rejected.</div>
+      <label>Serial Number <span class="field-hint" style="display:inline;">(optional)</span></label>
+      <input type="text" id="newSerial">
+      <div class="field-hint">Leave blank if this item doesn't have one. If entered, it must be unique - duplicates are rejected.</div>
       <label>Category</label>
       <input type="text" id="newCategory" placeholder="e.g. Electronics, Consumable">
       <label>Vendor</label>
-      <select id="newVendor"><option value="">-- None --</option></select>
+      <select id="newVendor" onchange="handleVendorSelectChange(this)"><option value="">-- None --</option></select>
       <label>Brand</label>
       <input type="text" id="newBrand">
       <label>Model</label>
       <input type="text" id="newModel">
       <label>Quantity</label>
       <input type="number" id="newQuantity" value="1" min="0">
+      <label>Low Stock Alert At <span class="field-hint" style="display:inline;">(optional, default 5)</span></label>
+      <input type="number" id="newLowStockThreshold" min="0" placeholder="5">
+      <div class="field-hint">Get a notification when this product's quantity drops to or below this number.</div>
       <label>Purchase Date</label>
       <input type="date" id="newPurchaseDate">
       <label>Warranty Expiry</label>
@@ -248,6 +251,47 @@ async function api(url, opts) {
   return data;
 }
 
+// Sentinel value for the "+ Add New Vendor..." option at the top of the
+// Vendor dropdown - lets the person creating a New Asset add a vendor right
+// here instead of leaving the scanner and going to the admin Vendors tab
+// (which employees can't reach anyway).
+const NEW_VENDOR_OPTION = '__new_vendor__';
+
+async function loadVendorList() {
+  try {
+    const { vendors } = await api('/api/vendors');
+    const sel = document.getElementById('newVendor');
+    const prevValue = sel.value;
+    sel.innerHTML = `<option value="">-- None --</option><option value="${NEW_VENDOR_OPTION}">+ Add New Vendor...</option>`;
+    vendors.forEach((v) => {
+      const opt = document.createElement('option');
+      opt.value = v.id; opt.textContent = v.name;
+      sel.appendChild(opt);
+    });
+    if (prevValue && prevValue !== NEW_VENDOR_OPTION) sel.value = prevValue;
+  } catch (e) {}
+}
+
+async function handleVendorSelectChange(selectEl) {
+  if (selectEl.value !== NEW_VENDOR_OPTION) return;
+  const name = prompt('New vendor name:');
+  if (!name || !name.trim()) { selectEl.value = ''; return; }
+  const clean = name.trim();
+  try {
+    await api('/api/vendors', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: clean }) });
+  } catch (e) {
+    if (!/already exists/i.test(e.message)) {
+      toast(e.message, false);
+      selectEl.value = '';
+      return;
+    }
+  }
+  await loadVendorList();
+  const opt = Array.from(selectEl.options).find((o) => o.textContent.toLowerCase() === clean.toLowerCase());
+  selectEl.value = opt ? opt.value : '';
+  toast(opt ? `Vendor "${opt.textContent}" selected` : 'Vendor added');
+}
+
 async function init() {
   let me;
   try {
@@ -270,15 +314,7 @@ async function init() {
   document.getElementById('deviceInfo').textContent = `Device: ${getDeviceName()} — a plugged-in wired/USB/Bluetooth barcode scanner also works automatically, just aim and trigger it.`;
   focusManualInput();
 
-  try {
-    const { vendors } = await api('/api/vendors');
-    const sel = document.getElementById('newVendor');
-    vendors.forEach((v) => {
-      const opt = document.createElement('option');
-      opt.value = v.id; opt.textContent = v.name;
-      sel.appendChild(opt);
-    });
-  } catch (e) {}
+  await loadVendorList();
 
   // Super admins aren't locked to a single business, so when they scan a
   // brand-new barcode we need them to pick which vertical it belongs to
@@ -452,7 +488,7 @@ function showNew(barcode) {
   document.getElementById('foundCard').classList.add('hidden');
   document.getElementById('newCard').classList.remove('hidden');
   document.getElementById('newBarcode').textContent = barcode;
-  ['newName','newSerial','newCategory','newBrand','newModel','newPurchaseDate','newWarrantyExpiry','newLocation','newDepartment','newAssignedEmployee','newRemarks'].forEach((id) => document.getElementById(id).value = '');
+  ['newName','newSerial','newCategory','newBrand','newModel','newLowStockThreshold','newPurchaseDate','newWarrantyExpiry','newLocation','newDepartment','newAssignedEmployee','newRemarks'].forEach((id) => document.getElementById(id).value = '');
   document.getElementById('newQuantity').value = 1;
   document.getElementById('newVendor').value = '';
   const vsel = document.getElementById('newVerticalId');
@@ -525,8 +561,8 @@ saveNewBtn.dataset.label = saveNewBtn.textContent;
 saveNewBtn.addEventListener('click', () => {
   const name = document.getElementById('newName').value.trim();
   const serial = document.getElementById('newSerial').value.trim();
-  if (!name || !serial) {
-    toast('Asset Name and Serial Number are required', false);
+  if (!name) {
+    toast('Asset Name is required', false);
     return;
   }
   let vertical_id = '';
@@ -547,6 +583,7 @@ saveNewBtn.addEventListener('click', () => {
       brand: document.getElementById('newBrand').value,
       model: document.getElementById('newModel').value,
       quantity: document.getElementById('newQuantity').value || 1,
+      low_stock_threshold: document.getElementById('newLowStockThreshold').value,
       purchase_date: document.getElementById('newPurchaseDate').value,
       warranty_expiry: document.getElementById('newWarrantyExpiry').value,
       location: document.getElementById('newLocation').value,

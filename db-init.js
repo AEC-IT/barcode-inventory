@@ -122,8 +122,9 @@ async function initDB() {
       vendor_id INTEGER REFERENCES vendors(id),
       brand TEXT DEFAULT '',
       model TEXT DEFAULT '',
-      serial_number TEXT UNIQUE NOT NULL,
+      serial_number TEXT UNIQUE,
       quantity INTEGER NOT NULL DEFAULT 1,
+      low_stock_threshold INTEGER,
       purchase_date DATE,
       warranty_expiry DATE,
       location TEXT DEFAULT '',
@@ -139,6 +140,13 @@ async function initDB() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `);
+  // Migration path for databases created before Serial Number became
+  // optional and before per-product low-stock alerts existed. Postgres
+  // allows any number of NULL values in a UNIQUE column (NULL is never
+  // considered equal to another NULL), so dropping NOT NULL here is safe
+  // and doesn't require touching the UNIQUE constraint itself.
+  await query(`ALTER TABLE assets ALTER COLUMN serial_number DROP NOT NULL`);
+  await query(`ALTER TABLE assets ADD COLUMN IF NOT EXISTS low_stock_threshold INTEGER`);
 
   await query(`
     CREATE TABLE IF NOT EXISTS asset_assignments (

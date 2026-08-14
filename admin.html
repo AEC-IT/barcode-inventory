@@ -596,11 +596,12 @@
       <div><label>Category</label><input type="text" id="editCategory"></div>
       <div>
         <label>Vendor</label>
-        <div class="vendor-row"><select id="editVendor"><option value="">-- None --</option></select></div>
+        <div class="vendor-row"><select id="editVendor" onchange="handleVendorSelectChange(this)"><option value="">-- None --</option></select></div>
       </div>
       <div><label>Brand</label><input type="text" id="editBrand"></div>
       <div><label>Model</label><input type="text" id="editModel"></div>
-      <div><label>Serial Number <span class="required-mark">*</span></label><input type="text" id="editSerial"></div>
+      <div><label>Serial Number <span class="field-hint" style="display:inline;">(optional)</span></label><input type="text" id="editSerial"></div>
+      <div><label>Low Stock Alert At <span class="field-hint" style="display:inline;">(optional, default 5)</span></label><input type="number" id="editLowStockThreshold" min="0" placeholder="5"></div>
       <div><label>Purchase Date</label><input type="date" id="editPurchaseDate"></div>
       <div><label>Warranty Expiry</label><input type="date" id="editWarrantyExpiry"></div>
       <div><label>Location</label><input type="text" id="editLocation"></div>
@@ -646,11 +647,12 @@
           <select id="cbVertical"></select>
         </div>
         <div><label>Category</label><input type="text" id="cbCategory"></div>
-        <div><label>Vendor</label><select id="cbVendor"><option value="">-- None --</option></select></div>
+        <div><label>Vendor</label><select id="cbVendor" onchange="handleVendorSelectChange(this)"><option value="">-- None --</option></select></div>
         <div><label>Brand</label><input type="text" id="cbBrand"></div>
         <div><label>Model</label><input type="text" id="cbModel"></div>
-        <div><label>Serial Number <span class="required-mark">*</span></label><input type="text" id="cbSerial"></div>
+        <div><label>Serial Number <span class="field-hint" style="display:inline;">(optional)</span></label><input type="text" id="cbSerial"></div>
         <div><label>Quantity</label><input type="number" id="cbQuantity" value="1" min="0"></div>
+        <div><label>Low Stock Alert At <span class="field-hint" style="display:inline;">(optional, default 5)</span></label><input type="number" id="cbLowStockThreshold" min="0" placeholder="5"></div>
         <div><label>Purchase Date</label><input type="date" id="cbPurchaseDate"></div>
         <div><label>Warranty Expiry</label><input type="date" id="cbWarrantyExpiry"></div>
         <div><label>Location</label><input type="text" id="cbLocation"></div>
@@ -693,11 +695,12 @@
         <select id="addVertical"></select>
       </div>
       <div><label>Category</label><input type="text" id="addCategory"></div>
-      <div><label>Vendor</label><select id="addVendor"><option value="">-- None --</option></select></div>
+      <div><label>Vendor</label><select id="addVendor" onchange="handleVendorSelectChange(this)"><option value="">-- None --</option></select></div>
       <div><label>Brand</label><input type="text" id="addBrand"></div>
       <div><label>Model</label><input type="text" id="addModel"></div>
-      <div><label>Serial Number <span class="required-mark">*</span></label><input type="text" id="addSerial"></div>
+      <div><label>Serial Number <span class="field-hint" style="display:inline;">(optional)</span></label><input type="text" id="addSerial"></div>
       <div><label>Quantity</label><input type="number" id="addQuantity" value="1" min="0"></div>
+      <div><label>Low Stock Alert At <span class="field-hint" style="display:inline;">(optional, default 5)</span></label><input type="number" id="addLowStockThreshold" min="0" placeholder="5"></div>
       <div><label>Purchase Date</label><input type="date" id="addPurchaseDate"></div>
       <div><label>Warranty Expiry</label><input type="date" id="addWarrantyExpiry"></div>
       <div><label>Location</label><input type="text" id="addLocation"></div>
@@ -944,19 +947,27 @@ async function loadVerticals() {
   });
 }
 
+// Sentinel value for the "+ Add New Vendor..." option that sits at the top
+// of every vendor dropdown (right below "-- None --") - selecting it never
+// gets saved as an actual vendor_id, handleVendorSelectChange() below
+// intercepts it and swaps in the real vendor once one's been created.
+const NEW_VENDOR_OPTION = '__new_vendor__';
+
 async function loadVendors() {
   const data = await api('/api/vendors');
   vendorsCache = data.vendors;
   ['cbVendor', 'addVendor', 'editVendor'].forEach((id) => {
     const el = document.getElementById(id);
     if (!el) return;
-    el.innerHTML = '<option value="">-- None --</option>';
+    const prevValue = el.value;
+    el.innerHTML = `<option value="">-- None --</option><option value="${NEW_VENDOR_OPTION}">+ Add New Vendor...</option>`;
     vendorsCache.forEach((v) => {
       const opt = document.createElement('option');
       opt.value = v.id;
       opt.textContent = v.name;
       el.appendChild(opt);
     });
+    if (prevValue && prevValue !== NEW_VENDOR_OPTION) el.value = prevValue;
   });
   const body = document.getElementById('vendorsBody');
   if (body) {
@@ -982,6 +993,32 @@ async function deleteVendor(id, name) {
     toast('Vendor deleted');
     loadVendors();
   } catch (e) { toast(e.message, false); }
+}
+
+// Handles picking "+ Add New Vendor..." from any of the three asset-form
+// vendor dropdowns (Create Barcode, Add Asset, Edit Asset) - prompts for a
+// name right there instead of making the user leave the form and go to the
+// Vendors tab, creates it via the same API the Vendors tab uses, then
+// re-selects the new (or matching existing) vendor in that same dropdown.
+async function handleVendorSelectChange(selectEl) {
+  if (selectEl.value !== NEW_VENDOR_OPTION) return;
+  const name = prompt('New vendor name:');
+  if (!name || !name.trim()) { selectEl.value = ''; return; }
+  const clean = name.trim();
+  try {
+    await api('/api/vendors', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: clean }) });
+  } catch (e) {
+    if (!/already exists/i.test(e.message)) {
+      toast(e.message, false);
+      selectEl.value = '';
+      return;
+    }
+    // Already exists - fine, we'll just select that existing one below.
+  }
+  await loadVendors();
+  const match = vendorsCache.find((v) => v.name.toLowerCase() === clean.toLowerCase());
+  document.getElementById(selectEl.id).value = match ? match.id : '';
+  toast(match ? `Vendor "${match.name}" selected` : 'Vendor added');
 }
 
 async function addVendor() {
@@ -1615,7 +1652,8 @@ async function openEditModal(id) {
   document.getElementById('editVendor').value = a.vendor_id || '';
   document.getElementById('editBrand').value = a.brand || '';
   document.getElementById('editModel').value = a.model || '';
-  document.getElementById('editSerial').value = a.serial_number;
+  document.getElementById('editSerial').value = a.serial_number || '';
+  document.getElementById('editLowStockThreshold').value = a.low_stock_threshold != null ? a.low_stock_threshold : '';
   document.getElementById('editPurchaseDate').value = a.purchase_date ? String(a.purchase_date).slice(0,10) : '';
   document.getElementById('editWarrantyExpiry').value = a.warranty_expiry ? String(a.warranty_expiry).slice(0,10) : '';
   document.getElementById('editLocation').value = a.location || '';
@@ -1719,6 +1757,7 @@ async function saveEdit() {
         brand: document.getElementById('editBrand').value,
         model: document.getElementById('editModel').value,
         serial_number: document.getElementById('editSerial').value,
+        low_stock_threshold: document.getElementById('editLowStockThreshold').value,
         purchase_date: document.getElementById('editPurchaseDate').value || null,
         warranty_expiry: document.getElementById('editWarrantyExpiry').value || null,
         location: document.getElementById('editLocation').value,
@@ -1759,7 +1798,7 @@ async function deleteAssetFromEdit() {
 
 // ---- Add modal ----
 function openAddModal() {
-  ['addBarcode','addName','addCategory','addBrand','addModel','addSerial','addPurchaseDate','addWarrantyExpiry','addLocation','addDepartment','addAssignedEmployee','addRemarks'].forEach((id) => document.getElementById(id).value = '');
+  ['addBarcode','addName','addCategory','addBrand','addModel','addSerial','addLowStockThreshold','addPurchaseDate','addWarrantyExpiry','addLocation','addDepartment','addAssignedEmployee','addRemarks'].forEach((id) => document.getElementById(id).value = '');
   document.getElementById('addQuantity').value = 1;
   document.getElementById('addVendor').value = '';
   document.getElementById('addOverlay').classList.remove('hidden');
@@ -1770,7 +1809,7 @@ async function saveAdd() {
   const barcode = document.getElementById('addBarcode').value.trim();
   const asset_name = document.getElementById('addName').value.trim();
   const serial_number = document.getElementById('addSerial').value.trim();
-  if (!barcode || !asset_name || !serial_number) { toast('Barcode, Asset Name and Serial Number are required', false); return; }
+  if (!barcode || !asset_name) { toast('Barcode and Asset Name are required', false); return; }
   const vertical_id = requiredVerticalIdFor('addVertical');
   if (isSuperAdmin() && !vertical_id) { toast('Business Vertical is required', false); return; }
   try {
@@ -1784,6 +1823,7 @@ async function saveAdd() {
         brand: document.getElementById('addBrand').value,
         model: document.getElementById('addModel').value,
         quantity: Number(document.getElementById('addQuantity').value) || 1,
+        low_stock_threshold: document.getElementById('addLowStockThreshold').value,
         purchase_date: document.getElementById('addPurchaseDate').value || null,
         warranty_expiry: document.getElementById('addWarrantyExpiry').value || null,
         location: document.getElementById('addLocation').value,
@@ -1973,7 +2013,7 @@ async function addBusiness() {
 let lastGeneratedBarcode = '';
 
 function openCreateBarcodeModal() {
-  ['cbName','cbCategory','cbBrand','cbModel','cbSerial','cbPurchaseDate','cbWarrantyExpiry','cbLocation','cbDepartment','cbAssignedEmployee','cbRemarks'].forEach((id) => {
+  ['cbName','cbCategory','cbBrand','cbModel','cbSerial','cbLowStockThreshold','cbPurchaseDate','cbWarrantyExpiry','cbLocation','cbDepartment','cbAssignedEmployee','cbRemarks'].forEach((id) => {
     document.getElementById(id).value = '';
   });
   document.getElementById('cbQuantity').value = 1;
@@ -1991,8 +2031,8 @@ function closeCreateBarcodeModal() {
 async function generateBarcode() {
   const asset_name = document.getElementById('cbName').value.trim();
   const serial_number = document.getElementById('cbSerial').value.trim();
-  if (!asset_name || !serial_number) {
-    toast('Asset Name and Serial Number are required', false);
+  if (!asset_name) {
+    toast('Asset Name is required', false);
     return;
   }
   const vertical_id = requiredVerticalIdFor('cbVertical');
@@ -2009,6 +2049,7 @@ async function generateBarcode() {
         brand: document.getElementById('cbBrand').value,
         model: document.getElementById('cbModel').value,
         quantity: Number(document.getElementById('cbQuantity').value) || 1,
+        low_stock_threshold: document.getElementById('cbLowStockThreshold').value,
         purchase_date: document.getElementById('cbPurchaseDate').value || null,
         warranty_expiry: document.getElementById('cbWarrantyExpiry').value || null,
         location: document.getElementById('cbLocation').value,

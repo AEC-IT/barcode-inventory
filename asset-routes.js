@@ -117,10 +117,12 @@ router.get('/', async (req, res, next) => {
       clauses.push(`a.assigned_employee = $${params.length}`);
     }
     if (low_stock === 'true' || low_stock === '1') {
-      // Same threshold as the dashboard's "Low Stock" stat card and the
-      // notifications feed (stats-routes.js / notification-routes.js) -
-      // clicking that card links here so the definition has to match.
-      clauses.push(`a.quantity > 0 AND a.quantity <= 5`);
+      // Each asset can set its own reorder point (low_stock_threshold) from
+      // the New Asset / Edit Asset forms; anything left unset falls back to
+      // the global default of 5 - same COALESCE used in
+      // notification-routes.js so the dashboard card, this filter, and the
+      // notification feed always agree on which assets count as "low".
+      clauses.push(`a.quantity > 0 AND a.quantity <= COALESCE(a.low_stock_threshold, 5)`);
     }
     if (warranty_expiring === 'true' || warranty_expiring === '1') {
       // Same 30-day IST window as the dashboard's "Warranty Expiring" card
@@ -178,13 +180,13 @@ router.post('/generate-barcode', async (req, res, next) => {
   try {
     const user = req.session.user;
     const {
-      asset_name, category, vendor_id, brand, model, serial_number, quantity,
+      asset_name, category, vendor_id, brand, model, serial_number, quantity, low_stock_threshold,
       purchase_date, warranty_expiry, location, department, assigned_employee, remarks,
       vertical_id: requestedVerticalId
     } = req.body || {};
 
-    if (!asset_name || !serial_number) {
-      return res.status(400).json({ error: 'Asset Name and Serial Number are required' });
+    if (!asset_name) {
+      return res.status(400).json({ error: 'Asset Name is required' });
     }
 
     let vertical_id = user.vertical_id;
@@ -197,11 +199,11 @@ router.post('/generate-barcode', async (req, res, next) => {
 
     const barcode = await generateUniqueBarcode();
     const { rows } = await query(
-      `INSERT INTO assets (barcode, asset_name, vertical_id, category, vendor_id, brand, model, serial_number, quantity, purchase_date, warranty_expiry, location, department, assigned_employee, remarks)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
+      `INSERT INTO assets (barcode, asset_name, vertical_id, category, vendor_id, brand, model, serial_number, quantity, low_stock_threshold, purchase_date, warranty_expiry, location, department, assigned_employee, remarks)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *`,
       [
         barcode, asset_name, vertical_id, category || '', vendor_id || null, brand || '', model || '',
-        serial_number, quantity || 1, purchase_date || null, warranty_expiry || null,
+        serial_number || null, quantity || 1, low_stock_threshold || null, purchase_date || null, warranty_expiry || null,
         location || '', department || '', assigned_employee || '', remarks || ''
       ]
     );
@@ -262,13 +264,13 @@ router.post('/', async (req, res, next) => {
   try {
     const user = req.session.user;
     const {
-      barcode, asset_name, category, vendor_id, brand, model, serial_number, quantity,
+      barcode, asset_name, category, vendor_id, brand, model, serial_number, quantity, low_stock_threshold,
       purchase_date, warranty_expiry, location, department, assigned_employee, remarks, image_path,
       vertical_id: requestedVerticalId
     } = req.body || {};
 
-    if (!barcode || !asset_name || !serial_number) {
-      return res.status(400).json({ error: 'Barcode, Asset Name and Serial Number are required' });
+    if (!barcode || !asset_name) {
+      return res.status(400).json({ error: 'Barcode and Asset Name are required' });
     }
 
     let vertical_id = user.vertical_id;
@@ -285,11 +287,11 @@ router.post('/', async (req, res, next) => {
     await assertSerialNumberFree(serial_number, undefined, { username: user.username, vertical_id, ip_address: req.ip });
 
     const { rows } = await query(
-      `INSERT INTO assets (barcode, asset_name, vertical_id, category, vendor_id, brand, model, serial_number, quantity, purchase_date, warranty_expiry, location, department, assigned_employee, remarks, image_path)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *`,
+      `INSERT INTO assets (barcode, asset_name, vertical_id, category, vendor_id, brand, model, serial_number, quantity, low_stock_threshold, purchase_date, warranty_expiry, location, department, assigned_employee, remarks, image_path)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING *`,
       [
         barcode, asset_name, vertical_id, category || '', vendor_id || null, brand || '', model || '',
-        serial_number, quantity || 1, purchase_date || null, warranty_expiry || null,
+        serial_number || null, quantity || 1, low_stock_threshold || null, purchase_date || null, warranty_expiry || null,
         location || '', department || '', assigned_employee || '', remarks || '', image_path || null
       ]
     );
@@ -315,11 +317,11 @@ router.put('/:id', async (req, res, next) => {
     }
 
     const {
-      asset_name, category, vendor_id, brand, model, serial_number, quantity,
+      asset_name, category, vendor_id, brand, model, serial_number, quantity, low_stock_threshold,
       purchase_date, warranty_expiry, location, department, assigned_employee, remarks, image_path, status
     } = req.body || {};
 
-    if (serial_number !== undefined && serial_number !== existingRows[0].serial_number) {
+    if (serial_number !== undefined && (serial_number || null) !== existingRows[0].serial_number) {
       await assertSerialNumberFree(serial_number, id, { username: req.session.user.username, vertical_id: existingRows[0].vertical_id, ip_address: req.ip });
     }
 
@@ -334,8 +336,9 @@ router.put('/:id', async (req, res, next) => {
     if (vendor_id !== undefined) set('vendor_id', vendor_id || null);
     if (brand !== undefined) set('brand', brand);
     if (model !== undefined) set('model', model);
-    if (serial_number !== undefined) set('serial_number', serial_number);
+    if (serial_number !== undefined) set('serial_number', serial_number || null);
     if (quantity !== undefined) set('quantity', quantity);
+    if (low_stock_threshold !== undefined) set('low_stock_threshold', low_stock_threshold === '' ? null : low_stock_threshold);
     if (purchase_date !== undefined) set('purchase_date', purchase_date || null);
     if (warranty_expiry !== undefined) set('warranty_expiry', warranty_expiry || null);
     if (location !== undefined) set('location', location);

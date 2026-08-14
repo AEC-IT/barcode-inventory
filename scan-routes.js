@@ -33,7 +33,7 @@ router.post('/', upload.single('photo'), async (req, res, next) => {
   try {
     const user = req.session.user;
     const {
-      barcode, asset_name, serial_number, category, vendor_id, brand, model, quantity,
+      barcode, asset_name, serial_number, category, vendor_id, brand, model, quantity, low_stock_threshold,
       purchase_date, warranty_expiry, location, department, assigned_employee, remarks,
       vertical_id: requestedVerticalId
     } = req.body || {};
@@ -57,8 +57,8 @@ router.post('/', upload.single('photo'), async (req, res, next) => {
     const isNewAsset = !asset;
 
     if (isNewAsset) {
-      if (!asset_name || !serial_number) {
-        return res.status(400).json({ error: 'Asset Name and Serial Number are required for a new asset' });
+      if (!asset_name) {
+        return res.status(400).json({ error: 'Asset Name is required for a new asset' });
       }
       let vertical_id = user.vertical_id;
       if (user.role === 'super_admin') {
@@ -66,18 +66,20 @@ router.post('/', upload.single('photo'), async (req, res, next) => {
         vertical_id = Number(requestedVerticalId);
       }
 
-      const { rows: dupSerial } = await query('SELECT id FROM assets WHERE serial_number = $1', [serial_number]);
-      if (dupSerial.length) {
-        await logAudit({ username: user.username, vertical_id, action: 'Duplicate Serial Number Blocked', ip_address: req.ip, new_value: { serial_number, barcode } });
-        return res.status(409).json({ error: 'This Serial Number is already registered to another asset' });
+      if (serial_number) {
+        const { rows: dupSerial } = await query('SELECT id FROM assets WHERE serial_number = $1', [serial_number]);
+        if (dupSerial.length) {
+          await logAudit({ username: user.username, vertical_id, action: 'Duplicate Serial Number Blocked', ip_address: req.ip, new_value: { serial_number, barcode } });
+          return res.status(409).json({ error: 'This Serial Number is already registered to another asset' });
+        }
       }
 
       const { rows } = await query(
-        `INSERT INTO assets (barcode, asset_name, vertical_id, category, vendor_id, brand, model, serial_number, quantity, purchase_date, warranty_expiry, location, department, assigned_employee, remarks, image_path, scan_count, last_scanned_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16, 1, now()) RETURNING *`,
+        `INSERT INTO assets (barcode, asset_name, vertical_id, category, vendor_id, brand, model, serial_number, quantity, low_stock_threshold, purchase_date, warranty_expiry, location, department, assigned_employee, remarks, image_path, scan_count, last_scanned_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17, 1, now()) RETURNING *`,
         [
           barcode, asset_name, vertical_id, category || '', vendor_id || null, brand || '', model || '',
-          serial_number, quantity || 1, purchase_date || null, warranty_expiry || null,
+          serial_number || null, quantity || 1, low_stock_threshold || null, purchase_date || null, warranty_expiry || null,
           location || '', department || '', assigned_employee || '', remarks || '', image_path || null
         ]
       );
