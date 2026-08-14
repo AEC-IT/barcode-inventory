@@ -19,6 +19,17 @@ function addDays(dateStr, days) {
   d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().slice(0, 10);
 }
+// node-pg returns DATE columns as JS Date objects, not strings - dropping
+// one straight into a template literal (as this file used to do) calls its
+// default .toString(), producing something like "Sat Aug 08 2026 00:00:00
+// GMT+0000 (Coordinated Universal Time)" in the notification text. This
+// normalizes either a Date object or an already-plain string to a clean
+// "YYYY-MM-DD" for display and for the "is it today" comparison below.
+function fmtDate(d) {
+  if (!d) return '';
+  const s = d instanceof Date ? d.toISOString() : String(d);
+  return s.slice(0, 10);
+}
 
 // Proactive alerts, computed live (not stored) each time this is called:
 //   - warranty expiring within 2 days -> "urgent" tier (danger/red)
@@ -94,12 +105,12 @@ router.get('/', async (req, res, next) => {
     const notifications = [
       ...warrantyUrgentAssets.map((a) => ({
         type: 'warranty_urgent', severity: 'danger',
-        message: `URGENT: ${a.asset_name} (${a.barcode}) warranty expires ${a.warranty_expiry === today ? 'TODAY' : a.warranty_expiry}${myVertical === null ? ' — ' + a.vertical_name : ''}`,
+        message: `URGENT: ${a.asset_name} (${a.barcode}) warranty expires ${fmtDate(a.warranty_expiry) === today ? 'TODAY' : fmtDate(a.warranty_expiry)}${myVertical === null ? ' — ' + a.vertical_name : ''}`,
         created_at: a.warranty_expiry, vertical_id: a.vertical_id
       })),
       ...warrantyAssets.map((a) => ({
         type: 'warranty_expiring', severity: 'warn',
-        message: `${a.asset_name} (${a.barcode}) warranty expires ${a.warranty_expiry}${myVertical === null ? ' — ' + a.vertical_name : ''}`,
+        message: `${a.asset_name} (${a.barcode}) warranty expires ${fmtDate(a.warranty_expiry)}${myVertical === null ? ' — ' + a.vertical_name : ''}`,
         created_at: a.warranty_expiry, vertical_id: a.vertical_id
       })),
       ...lowStockAssets.map((a) => ({
