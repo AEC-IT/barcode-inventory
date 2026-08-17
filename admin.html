@@ -435,12 +435,19 @@
       <h2>Vendor Master</h2>
       <div class="toolbar">
         <input type="text" id="newVendorName" placeholder="New vendor name (e.g. Dell)">
+        <select id="newVendorVertical" class="hidden"><option value="">-- Shared (all businesses) --</option></select>
         <button class="btn btn-primary" id="addVendorBtn">+ Add Vendor</button>
       </div>
-      <p class="toolbar-hint">Vendors are shared across all businesses. Duplicate names are rejected automatically.</p>
+      <p class="toolbar-hint" id="vendorAddHint">Leave Business as "Shared" for a vendor every business can use, or pick one business to make it authorised for that business only. Duplicate names are rejected within the same business.</p>
+      <div class="toolbar hidden" id="vendorFilterWrap">
+        <select id="vendorFilterVertical">
+          <option value="">Filter: All Vendors</option>
+          <option value="shared">Filter: Shared Only</option>
+        </select>
+      </div>
       <div class="table-wrap">
       <table>
-        <thead><tr><th>Vendor</th><th>Added</th><th id="vendorActionsHeader" class="hidden">Actions</th></tr></thead>
+        <thead><tr><th>Vendor</th><th>Business</th><th>Added</th><th id="vendorActionsHeader" class="hidden">Actions</th></tr></thead>
         <tbody id="vendorsBody"></tbody>
       </table>
       </div>
@@ -811,6 +818,7 @@ async function init() {
     document.getElementById('navBusinesses').remove();
     document.getElementById('navRecycleBin').remove();
     document.getElementById('navAuditLog').remove();
+    document.getElementById('vendorAddHint').textContent = 'This vendor will be added for your business only. Duplicate names are rejected within your business.';
   } else {
     document.getElementById('assetBusinessHeader').classList.remove('hidden');
     document.getElementById('recentBusinessHeader').classList.remove('hidden');
@@ -822,6 +830,8 @@ async function init() {
     document.getElementById('topUsedPanel').classList.remove('hidden');
     document.getElementById('assetsScopeLabel').textContent = '(all businesses)';
     document.getElementById('vendorActionsHeader').classList.remove('hidden');
+    document.getElementById('newVendorVertical').classList.remove('hidden');
+    document.getElementById('vendorFilterWrap').classList.remove('hidden');
   }
 
   const statusSelect = document.getElementById('assetStatusFilter');
@@ -901,6 +911,13 @@ async function init() {
 
   document.getElementById('globalSearch').addEventListener('input', debounce(runGlobalSearch, 300));
   document.getElementById('addVendorBtn').addEventListener('click', addVendor);
+  document.getElementById('vendorFilterVertical').addEventListener('change', renderVendorsTable);
+  // Only relevant for Super Admin (the only role that ever sees these two
+  // Business Vertical pickers) - switching which business a barcode/asset
+  // is being created for should immediately refresh that same form's
+  // Vendor dropdown to that business's authorised vendors.
+  document.getElementById('cbVertical').addEventListener('change', () => populateVendorSelect('cbVendor', contextVerticalFor('cbVendor')));
+  document.getElementById('addVertical').addEventListener('change', () => populateVendorSelect('addVendor', contextVerticalFor('addVendor')));
   document.getElementById('addBillBtn').addEventListener('click', addBill);
   document.getElementById('aiScanBillBtn').addEventListener('click', scanBillWithAi);
   document.getElementById('cancelAiReviewBtn').addEventListener('click', closeAiReview);
@@ -940,11 +957,17 @@ function switchTab(tab) {
 async function loadVerticals() {
   const data = await api('/api/verticals');
   verticalsCache = data.verticals;
-  ['cbVertical', 'addVertical', 'billVerticalId', 'assetVerticalFilter', 'newUserVertical', 'auditVertical'].forEach((id) => {
+  ['cbVertical', 'addVertical', 'billVerticalId', 'assetVerticalFilter', 'newUserVertical', 'auditVertical', 'newVendorVertical', 'vendorFilterVertical'].forEach((id) => {
     const el = document.getElementById(id);
     if (!el) return;
-    const keepFirst = id === 'assetVerticalFilter' || id === 'auditVertical';
-    el.innerHTML = keepFirst ? '<option value="">All Businesses</option>' : '';
+    if (id === 'newVendorVertical') {
+      el.innerHTML = '<option value="">-- Shared (all businesses) --</option>';
+    } else if (id === 'vendorFilterVertical') {
+      el.innerHTML = '<option value="">Filter: All Vendors</option><option value="shared">Filter: Shared Only</option>';
+    } else {
+      const keepFirst = id === 'assetVerticalFilter' || id === 'auditVertical';
+      el.innerHTML = keepFirst ? '<option value="">All Businesses</option>' : '';
+    }
     verticalsCache.forEach((v) => {
       const opt = document.createElement('option');
       opt.value = v.id;
@@ -960,34 +983,71 @@ async function loadVerticals() {
 // intercepts it and swaps in the real vendor once one's been created.
 const NEW_VENDOR_OPTION = '__new_vendor__';
 
+// Vendors visible to a given business = shared ones (vertical_id null) plus
+// that business's own authorised list. Passing a falsy vertId shows
+// shared-only, used before a Super Admin has a business picked yet.
+function vendorsForVertical(vertId) {
+  const vid = vertId ? Number(vertId) : null;
+  return vendorsCache.filter((v) => v.vertical_id == null || Number(v.vertical_id) === vid);
+}
+
+function populateVendorSelect(selectId, vertId) {
+  const el = document.getElementById(selectId);
+  if (!el) return;
+  const prevValue = el.value;
+  el.innerHTML = `<option value="">-- None --</option><option value="${NEW_VENDOR_OPTION}">+ Add New Vendor...</option>`;
+  vendorsForVertical(vertId).forEach((v) => {
+    const opt = document.createElement('option');
+    opt.value = v.id;
+    opt.textContent = v.vertical_id == null ? v.name : `${v.name} (${v.vertical_name || 'this business'})`;
+    el.appendChild(opt);
+  });
+  if (prevValue && prevValue !== NEW_VENDOR_OPTION) el.value = prevValue;
+}
+
+// Which business's authorised vendors a given asset-form Vendor dropdown
+// should show right now. A Vertical Admin/Employee's forms always use
+// their own fixed business. A Super Admin's forms depend on whichever
+// Business Vertical they've picked in that same modal (or, for Edit Asset,
+// the asset's own business - that never changes from the edit form).
+function contextVerticalFor(selectId) {
+  if (!isSuperAdmin()) return currentUser.vertical_id || null;
+  if (selectId === 'cbVendor') return requiredVerticalIdFor('cbVertical') || null;
+  if (selectId === 'addVendor') return requiredVerticalIdFor('addVertical') || null;
+  if (selectId === 'editVendor') return editingAsset ? editingAsset.vertical_id : null;
+  return null;
+}
+
+function refreshVendorSelects() {
+  ['cbVendor', 'addVendor', 'editVendor'].forEach((id) => populateVendorSelect(id, contextVerticalFor(id)));
+}
+
 async function loadVendors() {
   const data = await api('/api/vendors');
   vendorsCache = data.vendors;
-  ['cbVendor', 'addVendor', 'editVendor'].forEach((id) => {
-    const el = document.getElementById(id);
-    if (!el) return;
-    const prevValue = el.value;
-    el.innerHTML = `<option value="">-- None --</option><option value="${NEW_VENDOR_OPTION}">+ Add New Vendor...</option>`;
-    vendorsCache.forEach((v) => {
-      const opt = document.createElement('option');
-      opt.value = v.id;
-      opt.textContent = v.name;
-      el.appendChild(opt);
-    });
-    if (prevValue && prevValue !== NEW_VENDOR_OPTION) el.value = prevValue;
-  });
+  refreshVendorSelects();
+  renderVendorsTable();
+}
+
+function renderVendorsTable() {
   const body = document.getElementById('vendorsBody');
-  if (body) {
-    body.innerHTML = '';
-    const actionsCell = isSuperAdmin()
-      ? (v) => `<td class="actions" data-label="Actions"><button class="btn btn-danger btn-sm" onclick="deleteVendor(${v.id},'${esc(v.name).replace(/'/g,"\\'")}')">Delete</button></td>`
-      : () => '';
-    vendorsCache.forEach((v) => {
-      const tr = document.createElement('tr');
-      tr.innerHTML = `<td data-label="Vendor">${esc(v.name)}</td><td data-label="Added">${new Date(v.created_at).toLocaleDateString()}</td>${actionsCell(v)}`;
-      body.appendChild(tr);
-    });
-  }
+  if (!body) return;
+  const filterEl = document.getElementById('vendorFilterVertical');
+  const filterVal = filterEl ? filterEl.value : '';
+  let rows = vendorsCache;
+  if (filterVal === 'shared') rows = rows.filter((v) => v.vertical_id == null);
+  else if (filterVal) rows = rows.filter((v) => Number(v.vertical_id) === Number(filterVal));
+
+  body.innerHTML = '';
+  const actionsCell = isSuperAdmin()
+    ? (v) => `<td class="actions" data-label="Actions"><button class="btn btn-danger btn-sm" onclick="deleteVendor(${v.id},'${esc(v.name).replace(/'/g,"\\'")}')">Delete</button></td>`
+    : () => '';
+  rows.forEach((v) => {
+    const businessLabel = v.vertical_id == null ? 'Shared (All)' : `${v.vertical_icon || ''} ${esc(v.vertical_name || '')}`.trim();
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td data-label="Vendor">${esc(v.name)}</td><td data-label="Business">${businessLabel}</td><td data-label="Added">${new Date(v.created_at).toLocaleDateString()}</td>${actionsCell(v)}`;
+    body.appendChild(tr);
+  });
 }
 
 // Super Admin only (enforced server-side too) - blocked automatically if
@@ -1012,18 +1072,25 @@ async function handleVendorSelectChange(selectEl) {
   const name = prompt('New vendor name:');
   if (!name || !name.trim()) { selectEl.value = ''; return; }
   const clean = name.trim();
+  // New vendors created inline from an asset form are automatically
+  // authorised for whichever business that form is currently working
+  // with - the same business the person is already looking at.
+  const vertical_id = contextVerticalFor(selectEl.id);
   try {
-    await api('/api/vendors', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: clean }) });
+    await api('/api/vendors', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: clean, vertical_id }) });
   } catch (e) {
     if (!/already exists/i.test(e.message)) {
       toast(e.message, false);
       selectEl.value = '';
       return;
     }
-    // Already exists - fine, we'll just select that existing one below.
+    // Already exists for that business - fine, we'll just select it below.
   }
   await loadVendors();
-  const match = vendorsCache.find((v) => v.name.toLowerCase() === clean.toLowerCase());
+  const match = vendorsCache.find((v) =>
+    v.name.toLowerCase() === clean.toLowerCase() &&
+    (v.vertical_id == null ? !vertical_id : Number(v.vertical_id) === Number(vertical_id))
+  );
   document.getElementById(selectEl.id).value = match ? match.id : '';
   toast(match ? `Vendor "${match.name}" selected` : 'Vendor added');
 }
@@ -1031,10 +1098,13 @@ async function handleVendorSelectChange(selectEl) {
 async function addVendor() {
   const name = document.getElementById('newVendorName').value.trim();
   if (!name) { toast('Vendor name required', false); return; }
+  const vertSel = document.getElementById('newVendorVertical');
+  const vertical_id = isSuperAdmin() && vertSel ? (vertSel.value || null) : undefined;
   try {
-    await api('/api/vendors', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
+    await api('/api/vendors', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, vertical_id }) });
     toast('Vendor added');
     document.getElementById('newVendorName').value = '';
+    if (vertSel) vertSel.value = '';
     loadVendors();
   } catch (e) { toast(e.message, false); }
 }
@@ -1656,6 +1726,7 @@ async function openEditModal(id) {
   document.getElementById('editBarcodeLabel').textContent = a.barcode;
   document.getElementById('editName').value = a.asset_name;
   document.getElementById('editCategory').value = a.category || '';
+  populateVendorSelect('editVendor', a.vertical_id);
   document.getElementById('editVendor').value = a.vendor_id || '';
   document.getElementById('editBrand').value = a.brand || '';
   document.getElementById('editModel').value = a.model || '';
@@ -1807,7 +1878,7 @@ async function deleteAssetFromEdit() {
 function openAddModal() {
   ['addBarcode','addName','addCategory','addBrand','addModel','addSerial','addLowStockThreshold','addPurchaseDate','addWarrantyExpiry','addLocation','addDepartment','addAssignedEmployee','addRemarks'].forEach((id) => document.getElementById(id).value = '');
   document.getElementById('addQuantity').value = 1;
-  document.getElementById('addVendor').value = '';
+  populateVendorSelect('addVendor', contextVerticalFor('addVendor'));
   document.getElementById('addOverlay').classList.remove('hidden');
 }
 function closeAddModal() { document.getElementById('addOverlay').classList.add('hidden'); }
@@ -2024,7 +2095,7 @@ function openCreateBarcodeModal() {
     document.getElementById(id).value = '';
   });
   document.getElementById('cbQuantity').value = 1;
-  document.getElementById('cbVendor').value = '';
+  populateVendorSelect('cbVendor', contextVerticalFor('cbVendor'));
   document.getElementById('createBarcodeForm').classList.remove('hidden');
   document.getElementById('createBarcodeResult').classList.add('hidden');
   document.getElementById('createBarcodeOverlay').classList.remove('hidden');

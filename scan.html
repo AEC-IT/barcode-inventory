@@ -256,20 +256,42 @@ async function api(url, opts) {
 // here instead of leaving the scanner and going to the admin Vendors tab
 // (which employees can't reach anyway).
 const NEW_VENDOR_OPTION = '__new_vendor__';
+let vendorsCache = [];
+
+// GET /api/vendors already only returns vendors authorised for the caller's
+// own business (plus shared ones) for employees/vertical admins - a Super
+// Admin gets every vendor back and we filter client-side to whichever
+// business they've picked in the New Asset form's Business Vertical
+// dropdown, same "authorised vendors per business" idea as the admin panel.
+function contextVertical() {
+  if (currentUser && currentUser.role === 'super_admin') {
+    const vsel = document.getElementById('newVerticalId');
+    return vsel && vsel.value ? Number(vsel.value) : null;
+  }
+  return currentUser && currentUser.vertical ? currentUser.vertical.id : null;
+}
 
 async function loadVendorList() {
   try {
     const { vendors } = await api('/api/vendors');
-    const sel = document.getElementById('newVendor');
-    const prevValue = sel.value;
-    sel.innerHTML = `<option value="">-- None --</option><option value="${NEW_VENDOR_OPTION}">+ Add New Vendor...</option>`;
-    vendors.forEach((v) => {
-      const opt = document.createElement('option');
-      opt.value = v.id; opt.textContent = v.name;
-      sel.appendChild(opt);
-    });
-    if (prevValue && prevValue !== NEW_VENDOR_OPTION) sel.value = prevValue;
+    vendorsCache = vendors;
+    renderVendorSelect();
   } catch (e) {}
+}
+
+function renderVendorSelect() {
+  const sel = document.getElementById('newVendor');
+  const prevValue = sel.value;
+  const vid = contextVertical();
+  const visible = vendorsCache.filter((v) => v.vertical_id == null || (vid && Number(v.vertical_id) === Number(vid)));
+  sel.innerHTML = `<option value="">-- None --</option><option value="${NEW_VENDOR_OPTION}">+ Add New Vendor...</option>`;
+  visible.forEach((v) => {
+    const opt = document.createElement('option');
+    opt.value = v.id;
+    opt.textContent = v.vertical_id == null ? v.name : `${v.name} (${v.vertical_name || 'this business'})`;
+    sel.appendChild(opt);
+  });
+  if (prevValue && prevValue !== NEW_VENDOR_OPTION) sel.value = prevValue;
 }
 
 async function handleVendorSelectChange(selectEl) {
@@ -277,8 +299,11 @@ async function handleVendorSelectChange(selectEl) {
   const name = prompt('New vendor name:');
   if (!name || !name.trim()) { selectEl.value = ''; return; }
   const clean = name.trim();
+  // A vendor added right here is automatically authorised for whichever
+  // business this New Asset form is currently set to.
+  const vertical_id = contextVertical();
   try {
-    await api('/api/vendors', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: clean }) });
+    await api('/api/vendors', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: clean, vertical_id }) });
   } catch (e) {
     if (!/already exists/i.test(e.message)) {
       toast(e.message, false);
@@ -287,9 +312,12 @@ async function handleVendorSelectChange(selectEl) {
     }
   }
   await loadVendorList();
-  const opt = Array.from(selectEl.options).find((o) => o.textContent.toLowerCase() === clean.toLowerCase());
-  selectEl.value = opt ? opt.value : '';
-  toast(opt ? `Vendor "${opt.textContent}" selected` : 'Vendor added');
+  const match = vendorsCache.find((v) =>
+    v.name.toLowerCase() === clean.toLowerCase() &&
+    (v.vertical_id == null ? !vertical_id : Number(v.vertical_id) === Number(vertical_id))
+  );
+  selectEl.value = match ? match.id : '';
+  toast(match ? `Vendor "${match.name}" selected` : 'Vendor added');
 }
 
 async function init() {
@@ -334,6 +362,8 @@ async function init() {
         vsel.appendChild(opt);
       });
       document.getElementById('newVerticalWrap').classList.remove('hidden');
+      vsel.addEventListener('change', renderVendorSelect);
+      renderVendorSelect();
     } catch (e) {}
   }
 
@@ -490,9 +520,9 @@ function showNew(barcode) {
   document.getElementById('newBarcode').textContent = barcode;
   ['newName','newSerial','newCategory','newBrand','newModel','newLowStockThreshold','newPurchaseDate','newWarrantyExpiry','newLocation','newDepartment','newAssignedEmployee','newRemarks'].forEach((id) => document.getElementById(id).value = '');
   document.getElementById('newQuantity').value = 1;
-  document.getElementById('newVendor').value = '';
   const vsel = document.getElementById('newVerticalId');
   if (vsel) vsel.selectedIndex = 0;
+  renderVendorSelect();
 }
 
 function resetToScan() {

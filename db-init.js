@@ -93,10 +93,23 @@ async function initDB() {
   await query(`
     CREATE TABLE IF NOT EXISTS vendors (
       id SERIAL PRIMARY KEY,
-      name TEXT UNIQUE NOT NULL,
+      name TEXT NOT NULL,
+      vertical_id INTEGER REFERENCES verticals(id),
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `);
+  // vertical_id being nullable is the whole feature: NULL means "shared /
+  // authorised for every business", a real id means "authorised for that
+  // one business only". Migration for databases from before this existed.
+  // Also drops the old table-wide UNIQUE(name) in favor of a per-business
+  // uniqueness rule (same vendor name is fine once per business, or once
+  // shared) enforced in vendor-routes.js at insert time, since Postgres
+  // doesn't have a clean single-constraint way to say "unique name within
+  // vertical_id, treating NULL vertical_id as its own group" without a
+  // partial/expression index - simpler to keep the DB-level constraint
+  // permissive and let the app enforce the real rule.
+  await query(`ALTER TABLE vendors ADD COLUMN IF NOT EXISTS vertical_id INTEGER REFERENCES verticals(id)`);
+  await query(`ALTER TABLE vendors DROP CONSTRAINT IF EXISTS vendors_name_key`);
 
   await query(`
     CREATE TABLE IF NOT EXISTS users (
