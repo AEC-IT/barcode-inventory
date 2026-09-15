@@ -57,6 +57,11 @@ router.post('/', upload.single('photo'), async (req, res, next) => {
     const isNewAsset = !asset;
 
     if (isNewAsset) {
+      // Only Asset Name is required to log a brand-new item from the
+      // scanner - everything else (Serial Number, Category, Vendor, Brand,
+      // Model, Quantity, Low Stock Alert At, Purchase Date, Warranty
+      // Expiry, Location, Position, Assigned User, Photo, Remarks) is
+      // optional.
       if (!asset_name) {
         return res.status(400).json({ error: 'Asset Name is required for a new asset' });
       }

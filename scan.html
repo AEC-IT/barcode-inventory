@@ -162,8 +162,8 @@
       <input type="text" id="newBrand">
       <label>Model</label>
       <input type="text" id="newModel">
-      <label>Quantity <span class="required-mark">*</span></label>
-      <input type="number" id="newQuantity" value="1" min="0" required>
+      <label>Quantity</label>
+      <input type="number" id="newQuantity" value="1" min="0">
       <label>Low Stock Alert At <span class="field-hint" style="display:inline;">(optional, default 5)</span></label>
       <input type="number" id="newLowStockThreshold" min="0" placeholder="5">
       <div class="field-hint">Get a notification when this product's quantity drops to or below this number.</div>
@@ -173,12 +173,12 @@
       <input type="date" id="newWarrantyExpiry">
       <label>Asset Photo</label>
       <input type="file" id="newPhoto" accept="image/*" capture="environment">
-      <label>Location <span class="required-mark">*</span></label>
-      <input type="text" id="newLocation" placeholder="e.g. Rack A-12" required>
-      <label>Position / Department <span class="required-mark">*</span></label>
-      <input type="text" id="newDepartment" required>
-      <label>Assigned User <span class="required-mark">*</span></label>
-      <input type="text" id="newAssignedEmployee" required>
+      <label>Location <span class="field-hint" style="display:inline;">(optional)</span></label>
+      <input type="text" id="newLocation" placeholder="e.g. Rack A-12">
+      <label>Position / Department <span class="field-hint" style="display:inline;">(optional)</span></label>
+      <input type="text" id="newDepartment">
+      <label>Assigned User <span class="field-hint" style="display:inline;">(optional)</span></label>
+      <input type="text" id="newAssignedEmployee">
       <label>Remarks</label>
       <textarea id="newRemarks"></textarea>
       <button class="btn btn-success" id="saveNewBtn">Save New Asset</button>
@@ -591,18 +591,11 @@ saveNewBtn.dataset.label = saveNewBtn.textContent;
 saveNewBtn.addEventListener('click', () => {
   const name = document.getElementById('newName').value.trim();
   const serial = document.getElementById('newSerial').value.trim();
-  const quantity = document.getElementById('newQuantity').value.trim();
-  const location = document.getElementById('newLocation').value.trim();
-  const department = document.getElementById('newDepartment').value.trim();
-  const assignedEmployee = document.getElementById('newAssignedEmployee').value.trim();
-  // Only these five are required to save a new item - everything else on
-  // this form (Serial Number, Category, Vendor, Brand, Model, Low Stock
-  // Alert At, Purchase Date, Warranty Expiry, Photo, Remarks) is optional.
+  // Only Asset Name is required to save a new item - everything else on
+  // this form (Serial Number, Category, Vendor, Brand, Model, Quantity,
+  // Low Stock Alert At, Purchase Date, Warranty Expiry, Location, Position,
+  // Assigned User, Photo, Remarks) is optional.
   if (!name) { toast('Asset Name is required', false); return; }
-  if (quantity === '' || Number.isNaN(Number(quantity))) { toast('Quantity is required', false); return; }
-  if (!location) { toast('Location is required', false); return; }
-  if (!department) { toast('Position / Department is required', false); return; }
-  if (!assignedEmployee) { toast('Assigned User is required', false); return; }
   let vertical_id = '';
   if (currentUser.role === 'super_admin') {
     vertical_id = document.getElementById('newVerticalId').value;
