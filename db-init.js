@@ -277,6 +277,52 @@ async function initDB() {
   await query(`ALTER TABLE bills ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ`);
   await query(`ALTER TABLE bills ADD COLUMN IF NOT EXISTS unit_price NUMERIC`);
 
+  // Bill Scanner integration (integration-routes.js). Bill line items pushed
+  // from the independent bill-scanner app land in this same bills ledger,
+  // tagged with where they came from. external_key is the bill scanner's
+  // per-line idempotency_key and is what the upsert keys on, so a
+  // re-processed or edited bill updates its rows instead of duplicating.
+  // needs_review carries low-confidence OCR through so it shows up flagged
+  // rather than silently trusted; reviewed_at records a human confirming it.
+  await query(`ALTER TABLE bills ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'manual'`);
+  await query(`ALTER TABLE bills ADD COLUMN IF NOT EXISTS external_key TEXT`);
+  await query(`ALTER TABLE bills ADD COLUMN IF NOT EXISTS external_bill_id TEXT`);
+  await query(`ALTER TABLE bills ADD COLUMN IF NOT EXISTS invoice_number TEXT`);
+  await query(`ALTER TABLE bills ADD COLUMN IF NOT EXISTS vendor_gstin TEXT`);
+  await query(`ALTER TABLE bills ADD COLUMN IF NOT EXISTS hsn_sac TEXT`);
+  await query(`ALTER TABLE bills ADD COLUMN IF NOT EXISTS barcode TEXT`);
+  await query(`ALTER TABLE bills ADD COLUMN IF NOT EXISTS tax_amount NUMERIC`);
+  await query(`ALTER TABLE bills ADD COLUMN IF NOT EXISTS confidence NUMERIC`);
+  await query(`ALTER TABLE bills ADD COLUMN IF NOT EXISTS needs_review BOOLEAN NOT NULL DEFAULT false`);
+  await query(`ALTER TABLE bills ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ`);
+  await query(`ALTER TABLE bills ADD COLUMN IF NOT EXISTS source_image_url TEXT`);
+  await query(`ALTER TABLE bills ADD COLUMN IF NOT EXISTS asset_id INTEGER REFERENCES assets(id) ON DELETE SET NULL`);
+  await query(`CREATE UNIQUE INDEX IF NOT EXISTS bills_external_key_uq ON bills (external_key) WHERE external_key IS NOT NULL`);
+  await query(`CREATE INDEX IF NOT EXISTS bills_external_bill_idx ON bills (source, external_bill_id)`);
+
+  await query(`ALTER TABLE scans ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'app'`);
+  await query(`ALTER TABLE scans ADD COLUMN IF NOT EXISTS external_key TEXT`);
+  await query(`CREATE UNIQUE INDEX IF NOT EXISTS scans_external_key_uq ON scans (external_key) WHERE external_key IS NOT NULL`);
+
+  // Inbox of every message received from other apps: lets a retried
+  // delivery be recognised, and gives admins a record of what arrived,
+  // whether it was applied, and why it was rejected if not.
+  await query(`
+    CREATE TABLE IF NOT EXISTS integration_events (
+      id SERIAL PRIMARY KEY,
+      source TEXT NOT NULL,
+      event TEXT NOT NULL,
+      dedupe_key TEXT NOT NULL,
+      payload JSONB,
+      status TEXT NOT NULL DEFAULT 'received',
+      error TEXT,
+      received_count INTEGER NOT NULL DEFAULT 1,
+      first_received_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      last_received_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (source, dedupe_key)
+    )
+  `);
+
   await seed();
   await ensureSuperAdmin();
 }

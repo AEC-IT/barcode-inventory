@@ -86,6 +86,11 @@ app.use('/logos', express.static(path.join(__dirname, 'logos')));
 // mounted with no path prefix (rather than under '/api') so req.path
 // inside it is still the full original path like '/api/auth/login' -
 // that's what its EXEMPT_PATHS check compares against.
+// Machine-to-machine pushes from the independent Bill Scanner app. Mounted
+// before the interactive rate limiter (it has its own, looser one) and
+// authenticated by API key rather than a login session.
+app.use('/api/integrations', require('./integration-routes'));
+
 app.use('/api', generalLimiter);
 app.use(requireCsrf);
 
