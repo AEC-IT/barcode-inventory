@@ -2193,7 +2193,14 @@ function highlight(text, q) {
   return escaped.replace(re, '<mark>$1</mark>');
 }
 
+// Search runs while typing, so several requests can be in flight at once,
+// and on a slow host they can come back out of order. Each run takes a
+// ticket; only the newest ticket's response is allowed to render, so an
+// older query's late answer can never overwrite the current one.
+let globalSearchSeq = 0;
+
 async function runGlobalSearch() {
+  const seq = ++globalSearchSeq;
   const q = document.getElementById('globalSearch').value.trim();
   if (!q) {
     document.getElementById('searchResults').classList.remove('active');
@@ -2207,9 +2214,10 @@ async function runGlobalSearch() {
   try {
     data = await api('/api/search?q=' + encodeURIComponent(q));
   } catch (e) {
-    toast(e.message, false);
+    if (seq === globalSearchSeq) toast(e.message, false);
     return;
   }
+  if (seq !== globalSearchSeq) return; // a newer search has started - drop this stale result
 
   const pBody = document.getElementById('searchAssetsBody');
   pBody.innerHTML = '';
