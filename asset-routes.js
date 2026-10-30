@@ -22,10 +22,42 @@ function addDays(dateStr, days) {
   return d.toISOString().slice(0, 10);
 }
 
+// Serves one photo stored as a data URL in `table`.image_path, as a real
+// image the browser can cache. Lists only carry a link to this (see
+// createLiteViews in db-init.js), so a photo leaves the database only when
+// it's actually displayed - and, thanks to the cache header, usually only
+// once per device. The ?v=<updated_at> query on the link busts the cache
+// when a photo is replaced.
+async function sendStoredPhoto(req, res, next, table) {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id)) return res.status(404).end();
+    const myVertical = scopeVerticalId(req);
+    const params = [id];
+    let scope = '';
+    if (myVertical !== null) {
+      params.push(myVertical);
+      scope = 'AND vertical_id = $2';
+    }
+    const { rows } = await query(`SELECT image_path FROM ${table} WHERE id = $1 ${scope}`, params);
+    const dataUrl = rows[0] && rows[0].image_path;
+    const m = typeof dataUrl === 'string' && dataUrl.match(/^data:([^;,]+)(;base64)?,(.*)$/s);
+    if (!m) return res.status(404).end();
+    const body = m[2] ? Buffer.from(m[3], 'base64') : Buffer.from(decodeURIComponent(m[3]));
+    res.set('Content-Type', m[1]);
+    res.set('Cache-Control', 'private, max-age=2592000'); // 30 days, per-user only
+    res.send(body);
+  } catch (err) {
+    next(err);
+  }
+}
+
+router.get('/:id/photo', (req, res, next) => sendStoredPhoto(req, res, next, 'assets'));
+
 const SELECT_BASE = `
   SELECT a.*, v.name AS vendor_name,
          ve.code AS vertical_code, ve.name AS vertical_name, ve.icon AS vertical_icon
-  FROM assets a
+  FROM assets_lite a
   LEFT JOIN vendors v ON a.vendor_id = v.id
   JOIN verticals ve ON a.vertical_id = ve.id
 `;
@@ -345,7 +377,9 @@ router.put('/:id', async (req, res, next) => {
     if (department !== undefined) set('department', department);
     if (assigned_employee !== undefined) set('assigned_employee', assigned_employee);
     if (remarks !== undefined) set('remarks', remarks);
-    if (image_path !== undefined) set('image_path', image_path);
+    // Lists hand out image_path as a /photo link, not the photo itself; a
+    // client echoing that link back must never overwrite the stored image.
+    if (image_path !== undefined && (image_path === null || String(image_path).startsWith('data:'))) set('image_path', image_path);
     if (status !== undefined) set('status', status);
     fields.push('updated_at = now()');
 
@@ -521,3 +555,4 @@ router.get('/:id/assignments', async (req, res, next) => {
 });
 
 module.exports = router;
+module.exports.sendStoredPhoto = sendStoredPhoto;

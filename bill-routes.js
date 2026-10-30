@@ -4,6 +4,7 @@ const { query, logAudit } = require('./db-init');
 const { requireLogin, requireVerticalAdmin, scopeVerticalId } = require('./auth-middleware');
 const { analyzeBillImage, isConfigured: aiConfigured } = require('./azure-invoice');
 const router = express.Router();
+const { sendStoredPhoto } = require('./asset-routes');
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -41,7 +42,7 @@ router.get('/', async (req, res, next) => {
 
     const where = `WHERE ${clauses.join(' AND ')}`;
     const { rows } = await query(
-      `SELECT b.*, ve.name AS vertical_name, ve.icon AS vertical_icon FROM bills b
+      `SELECT b.*, ve.name AS vertical_name, ve.icon AS vertical_icon FROM bills_lite b
        JOIN verticals ve ON b.vertical_id = ve.id
        ${where} ORDER BY b.bill_date ASC, b.id ASC`,
       params
@@ -55,6 +56,10 @@ router.get('/', async (req, res, next) => {
 // Recycle Bin for bills - same soft-delete pattern as assets: nothing here
 // is ever hard-deleted, just hidden from the normal list above until
 // restored (or left here indefinitely).
+// Bill photo, served on demand instead of inside every list (see
+// createLiteViews in db-init.js).
+router.get('/:id/photo', (req, res, next) => sendStoredPhoto(req, res, next, 'bills'));
+
 router.get('/recycle-bin', async (req, res, next) => {
   try {
     const myVertical = scopeVerticalId(req);
@@ -65,7 +70,7 @@ router.get('/recycle-bin', async (req, res, next) => {
       clauses.push(`b.vertical_id = $${params.length}`);
     }
     const { rows } = await query(
-      `SELECT b.*, ve.name AS vertical_name, ve.icon AS vertical_icon FROM bills b
+      `SELECT b.*, ve.name AS vertical_name, ve.icon AS vertical_icon FROM bills_lite b
        JOIN verticals ve ON b.vertical_id = ve.id
        WHERE ${clauses.join(' AND ')} ORDER BY b.deleted_at DESC`,
       params

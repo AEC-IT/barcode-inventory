@@ -26,7 +26,7 @@ function addDays(dateStr, days) {
 
 async function computeVerticalStats(verticalId) {
   const { rows: assets } = await query(
-    `SELECT a.*, v.name AS vendor_name FROM assets a LEFT JOIN vendors v ON a.vendor_id = v.id
+    `SELECT a.*, v.name AS vendor_name FROM assets_lite a LEFT JOIN vendors v ON a.vendor_id = v.id
      WHERE a.vertical_id = $1 AND a.deleted_at IS NULL`,
     [verticalId]
   );
@@ -104,7 +104,7 @@ router.get('/', async (req, res, next) => {
        JOIN verticals ve ON s.vertical_id = ve.id ORDER BY s.id DESC LIMIT 10`
     );
     const { rows: topUsed } = await query(
-      `SELECT a.*, ve.name AS vertical_name FROM assets a JOIN verticals ve ON a.vertical_id = ve.id
+      `SELECT a.*, ve.name AS vertical_name FROM assets_lite a JOIN verticals ve ON a.vertical_id = ve.id
        WHERE a.deleted_at IS NULL ORDER BY a.scan_count DESC LIMIT 5`
     );
 

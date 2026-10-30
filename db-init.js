@@ -323,8 +323,37 @@ async function initDB() {
     )
   `);
 
+  await createLiteViews();
+
   await seed();
   await ensureSuperAdmin();
+}
+
+// Photos are stored inside the database as data URLs, often 100-500 KB
+// each. Lists, search and the dashboard used to SELECT a.* and so pulled
+// every photo out of the database on every page load - that alone can burn
+// through Neon's free 5 GB/month data transfer. These views are identical
+// to the real tables except image_path is replaced by a short link
+// (/api/assets/<id>/photo) that the browser fetches only when it actually
+// shows the picture, and then caches. Built from the live column list on
+// every startup, so they stay correct when new columns are added.
+async function createLiteViews() {
+  const views = [
+    { view: 'assets_lite', table: 'assets', url: "'/api/assets/' || id || '/photo?v=' || floor(extract(epoch from updated_at))::bigint" },
+    { view: 'bills_lite', table: 'bills', url: "'/api/bills/' || id || '/photo?v=' || floor(extract(epoch from updated_at))::bigint" }
+  ];
+  for (const { view, table, url } of views) {
+    const { rows } = await query(
+      `SELECT column_name FROM information_schema.columns
+       WHERE table_schema = current_schema() AND table_name = $1 ORDER BY ordinal_position`,
+      [table]
+    );
+    const cols = rows.map(({ column_name: c }) =>
+      c === 'image_path' ? `CASE WHEN image_path IS NOT NULL THEN ${url} END AS image_path` : `"${c}"`
+    );
+    await query(`DROP VIEW IF EXISTS ${view}`);
+    await query(`CREATE VIEW ${view} AS SELECT ${cols.join(', ')} FROM ${table}`);
+  }
 }
 
 // The full demo seed below only runs once, when the `users` table is

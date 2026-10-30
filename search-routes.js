@@ -24,7 +24,7 @@ router.get('/', async (req, res, next) => {
 
     const { rows: assets } = await query(
       `SELECT a.*, v.name AS vendor_name, ve.name AS vertical_name, ve.icon AS vertical_icon
-       FROM assets a
+       FROM assets_lite a
        LEFT JOIN vendors v ON a.vendor_id = v.id
        JOIN verticals ve ON a.vertical_id = ve.id
        WHERE a.deleted_at IS NULL ${assetVerticalClause}

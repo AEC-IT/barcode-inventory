@@ -17,7 +17,7 @@ async function fetchAssets(req) {
   }
   const { rows } = await query(
     `SELECT a.*, v.name AS vendor_name, ve.name AS vertical_name
-     FROM assets a LEFT JOIN vendors v ON a.vendor_id = v.id JOIN verticals ve ON a.vertical_id = ve.id
+     FROM assets_lite a LEFT JOIN vendors v ON a.vendor_id = v.id JOIN verticals ve ON a.vertical_id = ve.id
      ${where} ORDER BY a.id ASC`,
     params
   );
@@ -45,7 +45,7 @@ async function fetchBills(req) {
     where += ` AND b.vertical_id = $${params.length}`;
   }
   const { rows } = await query(
-    `SELECT b.*, ve.name AS vertical_name FROM bills b JOIN verticals ve ON b.vertical_id = ve.id
+    `SELECT b.*, ve.name AS vertical_name FROM bills_lite b JOIN verticals ve ON b.vertical_id = ve.id
      ${where} ORDER BY b.bill_date ASC, b.id ASC`,
     params
   );
