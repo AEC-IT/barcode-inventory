@@ -35,8 +35,23 @@ app.set('trust proxy', 1);
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
+// Logins are kept in Postgres rather than in server memory. Render's free
+// plan puts the server to sleep after 15 idle minutes; with the default
+// in-memory store every sleep/restart/redeploy silently logged everyone
+// out, and the open dashboard then showed "Request failed" on every call.
+// The table is created automatically and expired logins are cleaned up
+// every few hours, so it stays a few KB.
+const PgSession = require('connect-pg-simple')(session);
+const { pool } = require('./db-init');
+
 app.use(
   session({
+    store: new PgSession({
+      pool,
+      tableName: 'user_sessions',
+      createTableIfMissing: true,
+      pruneSessionInterval: 6 * 60 * 60 // seconds
+    }),
     secret: process.env.SESSION_SECRET || 'aec-eams-secret-change-me',
     resave: false,
     saveUninitialized: false,
