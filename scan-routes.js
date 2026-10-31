@@ -168,8 +168,9 @@ router.get('/', async (req, res, next) => {
     }
 
     const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
-    const { rows } = await query(`SELECT * FROM scans ${where} ORDER BY id DESC`, params);
-    res.json({ scans: rows });
+    const { limit, offset } = require('./asset-routes').pageParams(req);
+    const { rows } = await query(`SELECT * FROM scans ${where} ORDER BY id DESC LIMIT ${limit + 1} OFFSET ${offset}`, params);
+    res.json({ scans: rows.slice(0, limit), has_more: rows.length > limit, offset, limit });
   } catch (err) {
     next(err);
   }

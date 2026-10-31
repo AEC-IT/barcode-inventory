@@ -406,7 +406,7 @@ async function loadMyAssets() {
   const empty = document.getElementById('myAssetsEmpty');
   list.innerHTML = '';
   try {
-    const { assets } = await api('/api/assets?assigned_employee=' + encodeURIComponent(currentUser.full_name));
+    const { assets } = await api('/api/assets?limit=500&assigned_employee=' + encodeURIComponent(currentUser.full_name));
     if (!assets.length) { empty.classList.remove('hidden'); return; }
     empty.classList.add('hidden');
     assets.forEach((a) => {

@@ -54,6 +54,16 @@ async function sendStoredPhoto(req, res, next, table) {
 
 router.get('/:id/photo', (req, res, next) => sendStoredPhoto(req, res, next, 'assets'));
 
+// Lists are returned a page at a time: ?limit (default 100, max 500) and
+// ?offset. With thousands of assets/scans, sending everything on every
+// tab open is slow on phones and burns the database's monthly data
+// transfer. has_more tells the page whether to show "Load more".
+function pageParams(req) {
+  const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 100, 1), 500);
+  const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0);
+  return { limit, offset };
+}
+
 const SELECT_BASE = `
   SELECT a.*, v.name AS vendor_name,
          ve.code AS vertical_code, ve.name AS vertical_name, ve.icon AS vertical_icon
@@ -170,8 +180,9 @@ router.get('/', async (req, res, next) => {
     }
 
     const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
-    const { rows } = await query(`${SELECT_BASE} ${where} ORDER BY a.id DESC`, params);
-    res.json({ assets: rows });
+    const { limit, offset } = pageParams(req);
+    const { rows } = await query(`${SELECT_BASE} ${where} ORDER BY a.id DESC LIMIT ${limit + 1} OFFSET ${offset}`, params);
+    res.json({ assets: rows.slice(0, limit), has_more: rows.length > limit, offset, limit });
   } catch (err) {
     next(err);
   }
@@ -562,3 +573,4 @@ router.get('/:id/assignments', async (req, res, next) => {
 
 module.exports = router;
 module.exports.sendStoredPhoto = sendStoredPhoto;
+module.exports.pageParams = pageParams;

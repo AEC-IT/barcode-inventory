@@ -252,6 +252,8 @@
      garbled/overlapping look. */
   header{position:relative;z-index:20;}
   nav, main{position:relative;z-index:1;}
+.load-more{text-align:center;padding:16px 0;}
+.load-more .btn{min-width:160px;min-height:44px;}
 </style>
 </head>
 <body>
@@ -402,6 +404,7 @@
       </table>
       </div>
       <div class="empty hidden" id="assetsEmpty">No assets found.</div>
+      <div class="load-more hidden" id="assetsMoreWrap"><button type="button" class="btn btn-secondary" id="assetsMoreBtn" onclick="loadAssets(undefined, true)">Load more</button></div>
     </div>
   </section>
 
@@ -426,6 +429,7 @@
       </table>
       </div>
       <div class="empty hidden" id="historyEmpty">No scan history yet.</div>
+      <div class="load-more hidden" id="historyMoreWrap"><button type="button" class="btn btn-secondary" id="historyMoreBtn" onclick="loadHistory(true)">Load more</button></div>
     </div>
   </section>
 
@@ -1643,7 +1647,17 @@ function clearAssetFilter() {
   applySpecialAssetFilter(null);
 }
 
-async function loadAssets(overrideVerticalId) {
+const PAGE_SIZE = 100;
+let assetsOffset = 0;
+let assetsLastVertical;
+let assetsRequestSeq = 0;
+
+// append=true is the "Load more" button: fetch the next page with the same
+// filters and add it to the table. Any other call starts again from the top.
+async function loadAssets(overrideVerticalId, append) {
+  if (append) overrideVerticalId = assetsLastVertical;
+  else assetsLastVertical = overrideVerticalId;
+  const seq = ++assetsRequestSeq;
   const q = document.getElementById('assetSearch').value.trim();
   const status = document.getElementById('assetStatusFilter').value;
   const vertical_id = overrideVerticalId !== undefined ? overrideVerticalId : document.getElementById('assetVerticalFilter').value;
@@ -1657,10 +1671,15 @@ async function loadAssets(overrideVerticalId) {
     else if (specialAssetFilter.type === 'status') params.set('status', specialAssetFilter.value);
   }
 
+  params.set('limit', PAGE_SIZE);
+  params.set('offset', append ? assetsOffset : 0);
+
   const data = await api('/api/assets?' + params.toString());
-  assetsCache = data.assets;
+  if (seq !== assetsRequestSeq) return; // filters changed while loading
+  assetsOffset = (append ? assetsOffset : 0) + data.assets.length;
+  assetsCache = append ? assetsCache.concat(data.assets) : data.assets;
   const body = document.getElementById('assetsBody');
-  body.innerHTML = '';
+  if (!append) body.innerHTML = '';
   data.assets.forEach((a) => {
     const tr = document.createElement('tr');
     const img = a.image_path ? `<img class="thumb" src="${a.image_path}">` : `<div class="thumb-empty"></div>`;
@@ -1688,7 +1707,8 @@ async function loadAssets(overrideVerticalId) {
       </td>`;
     body.appendChild(tr);
   });
-  document.getElementById('assetsEmpty').classList.toggle('hidden', data.assets.length > 0);
+  document.getElementById('assetsEmpty').classList.toggle('hidden', assetsCache.length > 0);
+  document.getElementById('assetsMoreWrap').classList.toggle('hidden', !data.has_more);
   refreshProductNamesList();
 }
 
@@ -1938,7 +1958,11 @@ function printLabel(id) {
 }
 
 // ---------- SCAN HISTORY ----------
-async function loadHistory() {
+let historyOffset = 0;
+let historyRequestSeq = 0;
+async function loadHistory(append) {
+  append = append === true;
+  const seq = ++historyRequestSeq;
   const params = new URLSearchParams();
   const barcode = document.getElementById('historyBarcode').value.trim();
   const user = document.getElementById('historyUser').value;
@@ -1949,15 +1973,21 @@ async function loadHistory() {
   if (from) params.set('from', from);
   if (to) params.set('to', to);
 
+  params.set('limit', PAGE_SIZE);
+  params.set('offset', append ? historyOffset : 0);
+
   const data = await api('/api/scans?' + params.toString());
+  if (seq !== historyRequestSeq) return;
+  historyOffset = (append ? historyOffset : 0) + data.scans.length;
   const body = document.getElementById('historyBody');
-  body.innerHTML = '';
+  if (!append) body.innerHTML = '';
   data.scans.forEach((s) => {
     const tr = document.createElement('tr');
     tr.innerHTML = `<td data-label="Date">${s.scan_date}</td><td data-label="Time">${s.scan_time}</td><td data-label="Barcode" style="font-family:monospace">${esc(s.barcode)}</td><td data-label="Asset">${esc(s.asset_name)}</td><td data-label="Location">${esc(s.location || '-')}</td><td data-label="Employee">${esc(s.assigned_employee || '-')}</td><td data-label="Scanned By">${esc(s.scanned_by)}</td><td data-label="Device">${esc(s.device_name)}</td><td data-label="Remarks">${esc(s.remarks || '-')}</td>`;
     body.appendChild(tr);
   });
-  document.getElementById('historyEmpty').classList.toggle('hidden', data.scans.length > 0);
+  document.getElementById('historyEmpty').classList.toggle('hidden', historyOffset > 0);
+  document.getElementById('historyMoreWrap').classList.toggle('hidden', !data.has_more);
 }
 
 // ---------- USERS (Super Admin) ----------
