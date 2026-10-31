@@ -1204,7 +1204,7 @@ async function autoSaveScannedBill(draft) {
       if (item.unit_price != null) fd.append('unit_price', item.unit_price);
       fd.append('amount', item.amount || 0);
       if (vertical_id) fd.append('vertical_id', vertical_id);
-      if (lastScannedBillFile) fd.append('photo', lastScannedBillFile);
+      if (lastScannedBillFile) fd.append('photo', await compressImage(lastScannedBillFile, 1600, 0.75));
       await api('/api/bills', { method: 'POST', body: fd });
     }
     toast(`Bill read with high confidence - ${draft.line_items.length} item(s) saved automatically`);
@@ -1289,7 +1289,7 @@ async function saveAiReview() {
       fd.append('unit_price', row.querySelector('.ai-unit-price').value);
       fd.append('amount', row.querySelector('.ai-amount').value || 0);
       if (vertical_id) fd.append('vertical_id', vertical_id);
-      if (lastScannedBillFile) fd.append('photo', lastScannedBillFile);
+      if (lastScannedBillFile) fd.append('photo', await compressImage(lastScannedBillFile, 1600, 0.75));
       await api('/api/bills', { method: 'POST', body: fd });
     }
     toast(`${validRows.length} bill line(s) saved to the ledger`);
@@ -1325,7 +1325,7 @@ async function addBill() {
   fd.append('amount', amount);
   if (vertical_id) fd.append('vertical_id', vertical_id);
   const photoFile = document.getElementById('billPhoto').files[0];
-  if (photoFile) fd.append('photo', photoFile);
+  if (photoFile) fd.append('photo', await compressImage(photoFile, 1600, 0.75));
 
   try {
     await api('/api/bills', { method: 'POST', body: fd });
@@ -2181,6 +2181,38 @@ function printGeneratedBarcode() {
   `);
   w.document.close();
   setTimeout(() => w.print(), 300);
+}
+
+// Shrinks a photo in the browser before upload: resize so the longest side
+// is at most maxSide px, re-encode as JPEG. Phone photos are 2-5 MB; this
+// brings a product photo to roughly 50 KB, which matters because photos
+// are stored in the database (Neon free plan: 1 GB total). Anything that
+// isn't a decodable image (e.g. a PDF), or that would come out bigger, is
+// returned untouched, so this can never block an upload.
+async function compressImage(file, maxSide, quality) {
+  if (!file || !/^image\//.test(file.type)) return file;
+  try {
+    const bitmap = await new Promise((resolve, reject) => {
+      const img = new Image();
+      const url = URL.createObjectURL(file);
+      img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('decode failed')); };
+      img.src = url;
+    });
+    const scale = Math.min(1, maxSide / Math.max(bitmap.naturalWidth, bitmap.naturalHeight));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(bitmap.naturalWidth * scale);
+    canvas.height = Math.round(bitmap.naturalHeight * scale);
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#fff'; // transparent PNGs would otherwise turn black as JPEG
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality));
+    if (!blob || blob.size >= file.size) return file;
+    return new File([blob], (file.name || 'photo').replace(/\.[^.]*$/, '') + '.jpg', { type: 'image/jpeg' });
+  } catch (e) {
+    return file;
+  }
 }
 
 // ---------- GLOBAL SEARCH ----------

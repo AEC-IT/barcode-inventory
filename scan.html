@@ -536,6 +536,38 @@ function resetToScan() {
 document.getElementById('scanNextBtn1').addEventListener('click', resetToScan);
 document.getElementById('scanNextBtn2').addEventListener('click', resetToScan);
 
+// Shrinks a photo in the browser before upload: resize so the longest side
+// is at most maxSide px, re-encode as JPEG. Phone photos are 2-5 MB; this
+// brings a product photo to roughly 50 KB, which matters because photos
+// are stored in the database (Neon free plan: 1 GB total). Anything that
+// isn't a decodable image (e.g. a PDF), or that would come out bigger, is
+// returned untouched, so this can never block an upload.
+async function compressImage(file, maxSide, quality) {
+  if (!file || !/^image\//.test(file.type)) return file;
+  try {
+    const bitmap = await new Promise((resolve, reject) => {
+      const img = new Image();
+      const url = URL.createObjectURL(file);
+      img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('decode failed')); };
+      img.src = url;
+    });
+    const scale = Math.min(1, maxSide / Math.max(bitmap.naturalWidth, bitmap.naturalHeight));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(bitmap.naturalWidth * scale);
+    canvas.height = Math.round(bitmap.naturalHeight * scale);
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#fff'; // transparent PNGs would otherwise turn black as JPEG
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality));
+    if (!blob || blob.size >= file.size) return file;
+    return new File([blob], (file.name || 'photo').replace(/\.[^.]*$/, '') + '.jpg', { type: 'image/jpeg' });
+  } catch (e) {
+    return file;
+  }
+}
+
 async function submitScan(formFields, photoInputId, btnEl) {
   const fd = new FormData();
   fd.append('barcode', currentBarcode);
@@ -543,7 +575,7 @@ async function submitScan(formFields, photoInputId, btnEl) {
   fd.append('device_id', getDeviceId());
   Object.entries(formFields).forEach(([k, v]) => fd.append(k, v));
   const photoInput = document.getElementById(photoInputId);
-  if (photoInput.files[0]) fd.append('photo', photoInput.files[0]);
+  if (photoInput.files[0]) fd.append('photo', await compressImage(photoInput.files[0], 800, 0.7));
 
   btnEl.disabled = true;
   btnEl.textContent = 'Saving...';
