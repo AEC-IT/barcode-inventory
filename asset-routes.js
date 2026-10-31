@@ -2,6 +2,7 @@ const express = require('express');
 const { query, logAudit } = require('./db-init');
 const { requireLogin, requireVerticalAdmin, requireSuperAdmin, scopeVerticalId } = require('./auth-middleware');
 const router = express.Router();
+const { savePhoto, readPhoto } = require('./photo-store');
 
 router.use(requireLogin);
 
@@ -40,11 +41,10 @@ async function sendStoredPhoto(req, res, next, table) {
       scope = 'AND vertical_id = $2';
     }
     const { rows } = await query(`SELECT image_path FROM ${table} WHERE id = $1 ${scope}`, params);
-    const dataUrl = rows[0] && rows[0].image_path;
-    const m = typeof dataUrl === 'string' && dataUrl.match(/^data:([^;,]+)(;base64)?,(.*)$/s);
-    if (!m) return res.status(404).end();
-    const body = m[2] ? Buffer.from(m[3], 'base64') : Buffer.from(decodeURIComponent(m[3]));
-    res.set('Content-Type', m[1]);
+    const photo = rows[0] ? await readPhoto(rows[0].image_path) : null; // database or SharePoint
+    if (!photo) return res.status(404).end();
+    const body = photo.buffer;
+    res.set('Content-Type', photo.contentType);
     res.set('Cache-Control', 'private, max-age=2592000'); // 30 days, per-user only
     res.send(body);
   } catch (err) {
@@ -318,13 +318,15 @@ router.post('/', async (req, res, next) => {
     }
     await assertSerialNumberFree(serial_number, undefined, { username: user.username, vertical_id, ip_address: req.ip });
 
+    const photo = await savePhoto(image_path, { kind: 'asset', verticalId: vertical_id, label: barcode });
     const { rows } = await query(
-      `INSERT INTO assets (barcode, asset_name, vertical_id, category, vendor_id, brand, model, serial_number, quantity, low_stock_threshold, purchase_date, warranty_expiry, location, department, assigned_employee, remarks, image_path)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING *`,
+      `INSERT INTO assets (barcode, asset_name, vertical_id, category, vendor_id, brand, model, serial_number, quantity, low_stock_threshold, purchase_date, warranty_expiry, location, department, assigned_employee, remarks, image_path, photo_sharepoint_url)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING *`,
       [
         barcode, asset_name, vertical_id, category || '', vendor_id || null, brand || '', model || '',
         serial_number || null, quantity || 1, low_stock_threshold || null, purchase_date || null, warranty_expiry || null,
-        location || '', department || '', assigned_employee || '', remarks || '', image_path || null
+        location || '', department || '', assigned_employee || '', remarks || '',
+        photo ? photo.image_path : null, photo ? photo.sharepoint_url : null
       ]
     );
     await logAudit({ username: user.username, vertical_id, action: 'Asset Created', ip_address: req.ip, new_value: rows[0] });
@@ -379,7 +381,11 @@ router.put('/:id', async (req, res, next) => {
     if (remarks !== undefined) set('remarks', remarks);
     // Lists hand out image_path as a /photo link, not the photo itself; a
     // client echoing that link back must never overwrite the stored image.
-    if (image_path !== undefined && (image_path === null || String(image_path).startsWith('data:'))) set('image_path', image_path);
+    if (image_path === null) { set('image_path', null); set('photo_sharepoint_url', null); }
+    else if (image_path !== undefined && String(image_path).startsWith('data:')) {
+      const photo = await savePhoto(image_path, { kind: 'asset', verticalId: existingRows[0].vertical_id, label: existingRows[0].barcode });
+      if (photo) { set('image_path', photo.image_path); set('photo_sharepoint_url', photo.sharepoint_url); }
+    }
     if (status !== undefined) set('status', status);
     fields.push('updated_at = now()');
 

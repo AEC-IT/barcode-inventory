@@ -3,6 +3,7 @@ const multer = require('multer');
 const { query, logAudit, getIST } = require('./db-init');
 const { requireLogin, scopeVerticalId } = require('./auth-middleware');
 const router = express.Router();
+const { savePhoto } = require('./photo-store');
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -39,7 +40,6 @@ router.post('/', upload.single('photo'), async (req, res, next) => {
     } = req.body || {};
     if (!barcode) return res.status(400).json({ error: 'Barcode required' });
 
-    const image_path = fileToDataUrl(req.file);
     const myVertical = scopeVerticalId(req);
 
     const { rows: existingRows } = await query(
@@ -79,13 +79,15 @@ router.post('/', upload.single('photo'), async (req, res, next) => {
         }
       }
 
+      const photo = await savePhoto(req.file, { kind: 'asset', verticalId: vertical_id, label: barcode });
       const { rows } = await query(
-        `INSERT INTO assets (barcode, asset_name, vertical_id, category, vendor_id, brand, model, serial_number, quantity, low_stock_threshold, purchase_date, warranty_expiry, location, department, assigned_employee, remarks, image_path, scan_count, last_scanned_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17, 1, now()) RETURNING *`,
+        `INSERT INTO assets (barcode, asset_name, vertical_id, category, vendor_id, brand, model, serial_number, quantity, low_stock_threshold, purchase_date, warranty_expiry, location, department, assigned_employee, remarks, image_path, photo_sharepoint_url, scan_count, last_scanned_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18, 1, now()) RETURNING *`,
         [
           barcode, asset_name, vertical_id, category || '', vendor_id || null, brand || '', model || '',
           serial_number || null, quantity || 1, low_stock_threshold || null, purchase_date || null, warranty_expiry || null,
-          location || '', department || '', assigned_employee || '', remarks || '', image_path || null
+          location || '', department || '', assigned_employee || '', remarks || '',
+          photo ? photo.image_path : null, photo ? photo.sharepoint_url : null
         ]
       );
       asset = rows[0];
@@ -100,7 +102,8 @@ router.post('/', upload.single('photo'), async (req, res, next) => {
       if (location !== undefined) set('location', location);
       if (department !== undefined) set('department', department);
       if (assigned_employee !== undefined) set('assigned_employee', assigned_employee);
-      if (image_path) set('image_path', image_path);
+      const photo = await savePhoto(req.file, { kind: 'asset', verticalId: asset.vertical_id, label: barcode });
+      if (photo) { set('image_path', photo.image_path); set('photo_sharepoint_url', photo.sharepoint_url); }
       fields.push('scan_count = scan_count + 1');
       fields.push('last_scanned_at = now()');
       fields.push('updated_at = now()');

@@ -5,6 +5,7 @@ const { requireLogin, requireVerticalAdmin, scopeVerticalId } = require('./auth-
 const { analyzeBillImage, isConfigured: aiConfigured } = require('./azure-invoice');
 const router = express.Router();
 const { sendStoredPhoto } = require('./asset-routes');
+const { savePhoto } = require('./photo-store');
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -137,15 +138,16 @@ router.post('/', upload.single('photo'), async (req, res, next) => {
       vertical_id = Number(requestedVerticalId);
     }
 
-    const image_path = fileToDataUrl(req.file) || null;
+    const photo = await savePhoto(req.file, { kind: 'bill', verticalId: vertical_id, label: `bill-${String(asset_name).trim()}` });
     const unitPriceVal = unit_price !== undefined && unit_price !== '' && !Number.isNaN(Number(unit_price))
       ? Number(unit_price) : null;
     const { rows } = await query(
-      `INSERT INTO bills (vertical_id, asset_name, vendor_name, quantity, bill_date, expiry_date, unit_price, amount, image_path, remarks, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
+      `INSERT INTO bills (vertical_id, asset_name, vendor_name, quantity, bill_date, expiry_date, unit_price, amount, image_path, remarks, created_by, photo_sharepoint_url)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
       [
         vertical_id, String(asset_name).trim(), vendor_name || '', Number(quantity) || 1,
-        bill_date, expiry_date || null, unitPriceVal, Number(amount), image_path, remarks || '', user.username
+        bill_date, expiry_date || null, unitPriceVal, Number(amount), photo ? photo.image_path : null, remarks || '', user.username,
+        photo ? photo.sharepoint_url : null
       ]
     );
     await logAudit({
@@ -172,7 +174,7 @@ router.put('/:id', upload.single('photo'), async (req, res, next) => {
     }
 
     const { asset_name, vendor_name, quantity, bill_date, expiry_date, unit_price, amount, remarks } = req.body || {};
-    const uploadedPhoto = fileToDataUrl(req.file);
+    const uploadedPhoto = await savePhoto(req.file, { kind: 'bill', verticalId: existingRows[0].vertical_id, label: `bill-${id}-${existingRows[0].asset_name}` });
     const fields = [];
     const params = [];
     function set(col, val) {
@@ -187,7 +189,7 @@ router.put('/:id', upload.single('photo'), async (req, res, next) => {
     if (unit_price !== undefined) set('unit_price', unit_price === '' || Number.isNaN(Number(unit_price)) ? null : Number(unit_price));
     if (amount !== undefined) set('amount', amount === '' || Number.isNaN(Number(amount)) ? 0 : Number(amount));
     if (remarks !== undefined) set('remarks', remarks);
-    if (uploadedPhoto !== undefined) set('image_path', uploadedPhoto);
+    if (uploadedPhoto) { set('image_path', uploadedPhoto.image_path); set('photo_sharepoint_url', uploadedPhoto.sharepoint_url); }
     if (!fields.length) return res.status(400).json({ error: 'Nothing to update' });
     fields.push('updated_at = now()');
 

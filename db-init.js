@@ -48,7 +48,23 @@ function getIST(date) {
 // route anywhere against this table, which is what makes the log
 // "immutable" in practice (nobody, including Super Admin, has a code path
 // that can alter or erase a row once it's written).
+// Audit entries used to embed the whole row, photo included - so every
+// asset/bill save wrote one or two full copies of the photo into
+// audit_logs, which never gets cleaned up. Photos are replaced with a
+// short marker; whether the photo changed is still visible.
+function stripPhotos(value) {
+  if (!value || typeof value !== 'object') return value;
+  if (Array.isArray(value)) return value.map(stripPhotos);
+  const out = {};
+  for (const [k, v] of Object.entries(value)) {
+    out[k] = typeof v === 'string' && v.startsWith('data:') && v.length > 200 ? `[photo ${Math.round(v.length / 1024)} KB]` : stripPhotos(v);
+  }
+  return out;
+}
+
 async function logAudit({ username, vertical_id, action, ip_address, old_value, new_value }) {
+  old_value = stripPhotos(old_value);
+  new_value = stripPhotos(new_value);
   try {
     await query(
       `INSERT INTO audit_logs (username, vertical_id, action, ip_address, old_value, new_value)
@@ -322,6 +338,10 @@ async function initDB() {
       UNIQUE (source, dedupe_key)
     )
   `);
+
+  // SharePoint link for photos moved out of the database (photo-store.js).
+  await query(`ALTER TABLE assets ADD COLUMN IF NOT EXISTS photo_sharepoint_url TEXT`);
+  await query(`ALTER TABLE bills ADD COLUMN IF NOT EXISTS photo_sharepoint_url TEXT`);
 
   await createLiteViews();
 

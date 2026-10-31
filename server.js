@@ -126,6 +126,9 @@ initDB()
       console.log('  Database: connected to Postgres (DATABASE_URL)');
       console.log('=================================================');
       console.log('');
+      // Move photos still stored in the database over to SharePoint, in the
+      // background (no-op unless SharePoint is configured). See photo-store.js.
+      setTimeout(() => require('./photo-store').migrateExistingPhotos(), 15000);
     });
   })
   .catch((err) => {
