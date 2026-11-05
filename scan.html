@@ -247,6 +247,12 @@ async function api(url, opts) {
   const res = await fetch(url, opts);
   let data = {};
   try { data = await res.json(); } catch (e) {}
+  if (res.status === 401) {
+    // Login expired (idle timeout) - go back to the sign-in page instead of
+    // leaving the page open showing "Not logged in" on every action.
+    window.location.href = '/login.html';
+    throw new Error('Your session expired. Please sign in again.');
+  }
   if (!res.ok) { const err = new Error(data.error || 'Request failed'); err.data = data; throw err; }
   return data;
 }
@@ -586,6 +592,11 @@ async function submitScan(formFields, photoInputId, btnEl) {
       headers: csrfToken ? { 'X-CSRF-Token': csrfToken } : {}
     });
     const data = await res.json();
+    if (res.status === 401) {
+      toast('Your login expired - please sign in again and re-scan this item.', false);
+      setTimeout(() => { window.location.href = '/login.html'; }, 2500);
+      return;
+    }
     if (!res.ok) {
       toast(data.error || 'Save failed', false);
       return;

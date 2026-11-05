@@ -56,7 +56,7 @@ app.use(
     resave: false,
     saveUninitialized: false,
     rolling: true, // idle timeout: each request refreshes the countdown
-    cookie: { maxAge: 1000 * 60 * 60 * 2 } // 2 hour idle session timeout
+    cookie: { maxAge: 1000 * 60 * 60 * 8 } // 8 hour idle timeout - one work shift, so a lunch break doesn't log scanners out
   })
 );
 

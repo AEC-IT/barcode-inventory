@@ -779,6 +779,12 @@ async function api(url, opts) {
   const res = await fetch(url, opts);
   let data = {};
   try { data = await res.json(); } catch (e) {}
+  if (res.status === 401) {
+    // Login expired (idle timeout) - go back to the sign-in page instead of
+    // leaving the page open showing "Not logged in" on every action.
+    window.location.href = '/login.html';
+    throw new Error('Your session expired. Please sign in again.');
+  }
   if (!res.ok) throw new Error(data.error || 'Request failed');
   return data;
 }
