@@ -21,11 +21,36 @@ if (!process.env.DATABASE_URL) {
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: process.env.PGSSLMODE === 'disable' ? false : { rejectUnauthorized: false }
+  ssl: process.env.PGSSLMODE === 'disable' ? false : { rejectUnauthorized: false },
+  // Neon sleeps after 5 idle minutes and can take a few seconds to wake;
+  // don't hang forever waiting, and drop idle connections before Neon does.
+  connectionTimeoutMillis: 20000,
+  idleTimeoutMillis: 30000,
+  keepAlive: true
 });
 
+// Neon (and any network blip between the app and the database) can cut a
+// connection that is sitting idle in the pool. node-postgres reports that
+// as an 'error' event on the pool, and an unhandled 'error' event CRASHES
+// the whole Node process - Render then restarts it and every request in
+// between fails with "Server error". The pool already discards the broken
+// connection itself; we only need to log it instead of dying.
+pool.on('error', (err) => {
+  console.error('Database connection dropped (will reconnect automatically):', err.message);
+});
+
+// Retry once on errors that mean "the connection went away", which happen
+// when a pooled connection was cut while idle. Safe because a failed
+// statement on a dead connection never reached the database.
+const TRANSIENT = /Connection terminated|ECONNRESET|terminating connection|Client has encountered a connection error|timeout exceeded when trying to connect/i;
 async function query(text, params) {
-  return pool.query(text, params);
+  try {
+    return await pool.query(text, params);
+  } catch (err) {
+    if (!TRANSIENT.test(err.message || '')) throw err;
+    console.error('Database query hit a dropped connection, retrying once:', err.message);
+    return pool.query(text, params);
+  }
 }
 
 const bcrypt = require('bcryptjs');

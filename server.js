@@ -129,7 +129,25 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Server error', detail: err.message });
 });
 
-initDB()
+// Last-resort safety net: log anything that slipped through instead of
+// letting one stray error take the whole app down for everyone.
+process.on('unhandledRejection', (err) => console.error('Unhandled promise rejection:', err));
+
+// Neon may still be waking up when Render starts the app, so retry the
+// initial connection a few times before giving up.
+async function initDBWithRetry(attempts = 5) {
+  for (let i = 1; ; i++) {
+    try {
+      return await initDB();
+    } catch (err) {
+      if (i >= attempts) throw err;
+      console.error(`Database not ready (attempt ${i}/${attempts}): ${err.message} - retrying in ${i * 3}s`);
+      await new Promise((r) => setTimeout(r, i * 3000));
+    }
+  }
+}
+
+initDBWithRetry()
   .then(() => {
     app.listen(PORT, '0.0.0.0', () => {
       console.log('');
