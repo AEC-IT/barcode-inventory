@@ -184,7 +184,9 @@ async function migrateExistingPhotos({ batchSize = 5, pauseMs = 1500 } = {}) {
       for (;;) {
         const { rows } = await query(
           `SELECT id, vertical_id, ${label} AS label FROM ${table}
-           WHERE image_path LIKE 'data:%' AND NOT (id = ANY($1::int[])) ORDER BY id LIMIT $2`,
+           WHERE image_path LIKE 'data:%' AND NOT (id = ANY($1::int[]))
+             AND (photo_migration_failed_at IS NULL OR photo_migration_failed_at < now() - interval '1 day')
+           ORDER BY id LIMIT $2`,
           [[...failed].filter((k) => k.startsWith(table + ':')).map((k) => Number(k.split(':')[1])), batchSize]
         );
         if (!rows.length) break;
@@ -203,13 +205,15 @@ async function migrateExistingPhotos({ batchSize = 5, pauseMs = 1500 } = {}) {
             moved++;
           } catch (err) {
             failed.add(`${table}:${row.id}`);
+            // Don't try this photo again for a day, however often the app restarts.
+            await query(`UPDATE ${table} SET photo_migration_failed_at = now() WHERE id = $1`, [row.id]).catch(() => {});
             console.error(`Photo migration: ${table} #${row.id} failed: ${err.message}`);
           }
         }
         await new Promise((r) => setTimeout(r, pauseMs));
       }
     }
-    if (moved || failed.size) console.log(`Photo migration to SharePoint: ${moved} moved, ${failed.size} failed (will retry next restart).`);
+    if (moved || failed.size) console.log(`Photo migration to SharePoint: ${moved} moved, ${failed.size} failed (each retried after 24 hours).`);
   } catch (err) {
     console.error('Photo migration stopped:', err.message);
   } finally {

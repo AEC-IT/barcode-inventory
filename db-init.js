@@ -367,6 +367,11 @@ async function runSchemaSetup() {
   // SharePoint link for photos moved out of the database (photo-store.js).
   await query(`ALTER TABLE assets ADD COLUMN IF NOT EXISTS photo_sharepoint_url TEXT`);
   await query(`ALTER TABLE bills ADD COLUMN IF NOT EXISTS photo_sharepoint_url TEXT`);
+  // When moving a photo to SharePoint last failed. Without this, every
+  // restart re-read every not-yet-moved photo out of the database, and a
+  // crash/restart loop turned that into gigabytes of data transfer.
+  await query(`ALTER TABLE assets ADD COLUMN IF NOT EXISTS photo_migration_failed_at TIMESTAMPTZ`);
+  await query(`ALTER TABLE bills ADD COLUMN IF NOT EXISTS photo_migration_failed_at TIMESTAMPTZ`);
 
   await createLiteViews();
 
