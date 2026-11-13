@@ -109,7 +109,7 @@ async function logAudit({ username, vertical_id, action, ip_address, old_value, 
   }
 }
 
-async function initDB() {
+async function runSchemaSetup() {
   await query(`
     CREATE TABLE IF NOT EXISTS verticals (
       id SERIAL PRIMARY KEY,
@@ -509,6 +509,41 @@ async function seed() {
       );
       await query('UPDATE assets SET scan_count = 1, last_scanned_at = now() WHERE id = $1', [assetId]);
     }
+  }
+}
+
+// Startup used to run all ~67 schema statements (CREATE TABLE IF NOT
+// EXISTS, ALTER TABLE ... ADD COLUMN IF NOT EXISTS, views, seed checks) on
+// every boot. Each is a round trip to the database, and with the app in
+// Singapore and Neon in Ohio that added ~20 seconds to every cold start on
+// Render's free plan. The setup only needs to run when the setup code
+// itself changes, so we fingerprint it and remember the fingerprint in
+// the database: a normal restart now costs two queries.
+const crypto = require('crypto');
+const SCHEMA_FINGERPRINT = crypto.createHash('sha256')
+  .update([runSchemaSetup, createLiteViews, seed].map(String).join('\n'))
+  .digest('hex');
+
+async function initDB() {
+  let stored = null;
+  try {
+    const { rows } = await query(`SELECT value FROM schema_meta WHERE key = 'schema_fingerprint'`);
+    stored = rows[0] ? rows[0].value : null;
+  } catch (err) {
+    if (err.code !== '42P01') throw err; // 42P01 = table doesn't exist yet (first run)
+  }
+  if (stored !== SCHEMA_FINGERPRINT) {
+    console.log('Database schema setup running (first start after an update)...');
+    await runSchemaSetup();
+    await query(`CREATE TABLE IF NOT EXISTS schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)`);
+    await query(
+      `INSERT INTO schema_meta (key, value) VALUES ('schema_fingerprint', $1)
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+      [SCHEMA_FINGERPRINT]
+    );
+  } else {
+    // Cheap guarantee that an admin can always log in.
+    await ensureSuperAdmin();
   }
 }
 
