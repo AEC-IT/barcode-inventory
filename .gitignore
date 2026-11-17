@@ -1,4 +1,7 @@
-node_modules/
+*.backup
+.env
 db-data.json
-uploads/
+logs/
+node_modules/
 npm-debug.log
+uploads/
