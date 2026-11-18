@@ -69,15 +69,16 @@ if "%MS_CLIENT_ID%"=="" set /p "MS_CLIENT_ID=  Microsoft Client ID: "
 if "%MS_CLIENT_SECRET%"=="" set /p "MS_CLIENT_SECRET=  Microsoft Client Secret: "
 if "%SHAREPOINT_SITE%"=="" set /p "SHAREPOINT_SITE=  SharePoint site address: "
 for /f %%i in ('powershell -NoProfile -Command "[guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N')"') do set "SESSION_SECRET=%%i"
+REM Values are quoted: unquoted, the .env reader treats # as the start of a comment.
 > "%APP%\.env" echo DATABASE_URL=postgresql://postgres@localhost:5432/eams
->> "%APP%\.env" echo PGPASSWORD=%PGPASSWORD%
+>> "%APP%\.env" echo PGPASSWORD="%PGPASSWORD%"
 >> "%APP%\.env" echo PGSSLMODE=disable
 >> "%APP%\.env" echo PORT=3000
->> "%APP%\.env" echo SESSION_SECRET=%SESSION_SECRET%
->> "%APP%\.env" echo MS_TENANT_ID=%MS_TENANT_ID%
->> "%APP%\.env" echo MS_CLIENT_ID=%MS_CLIENT_ID%
->> "%APP%\.env" echo MS_CLIENT_SECRET=%MS_CLIENT_SECRET%
->> "%APP%\.env" echo SHAREPOINT_SITE=%SHAREPOINT_SITE%
+>> "%APP%\.env" echo SESSION_SECRET="%SESSION_SECRET%"
+>> "%APP%\.env" echo MS_TENANT_ID="%MS_TENANT_ID%"
+>> "%APP%\.env" echo MS_CLIENT_ID="%MS_CLIENT_ID%"
+>> "%APP%\.env" echo MS_CLIENT_SECRET="%MS_CLIENT_SECRET%"
+>> "%APP%\.env" echo SHAREPOINT_SITE="%SHAREPOINT_SITE%"
 echo  Settings saved.
 :envdone
 
