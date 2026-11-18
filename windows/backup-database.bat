@@ -9,6 +9,9 @@ set PG_BIN=C:\Program Files\PostgreSQL\17\bin
 set PGPASSWORD=PUT-YOUR-POSTGRES-PASSWORD-HERE
 set BACKUP_DIR=%USERPROFILE%\AEC Group\Asset Photos barcode scanner - Documents\Database Backups
 
+REM setup.bat saves the real values here, overriding the lines above.
+if exist "%~dp0backup-config.bat" call "%~dp0backup-config.bat"
+
 if not exist "%BACKUP_DIR%" mkdir "%BACKUP_DIR%"
 for /f %%i in ('powershell -NoProfile -Command "Get-Date -Format yyyy-MM-dd_HHmm"') do set STAMP=%%i
 
