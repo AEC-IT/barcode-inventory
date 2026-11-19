@@ -448,7 +448,27 @@ document.getElementById('manualBarcode').addEventListener('keydown', (e) => {
   }
 });
 
+// Turn the camera failure into something staff can act on, instead of one
+// generic message for every cause.
+function cameraErrorMessage(err) {
+  const name = (err && err.name) || '';
+  const text = String((err && err.message) || err || '');
+  if (!window.isSecureContext) return 'Camera needs the https:// link - open the app from its https address.';
+  if (name === 'NotAllowedError' || /permission|denied|not allowed/i.test(text))
+    return 'Camera blocked. Tap the lock icon by the address -> Permissions -> Camera -> Allow, then reload.';
+  if (name === 'NotFoundError' || /not found|no camera|requested device/i.test(text))
+    return 'No camera found on this device.';
+  if (name === 'NotReadableError' || /in use|could not start|readable/i.test(text))
+    return 'Camera is busy - close other apps using the camera and try again.';
+  if (typeof Html5Qrcode === 'undefined') return 'Scanner failed to load - check the internet connection and reload.';
+  return 'Camera error: ' + (text || name || 'unknown') + '. If this link was opened inside WhatsApp, open it in Chrome/Safari instead.';
+}
+
 function startScanning() {
+  if (typeof Html5Qrcode === 'undefined') {
+    toast('Scanner failed to load - check the internet connection and reload.', false);
+    return;
+  }
   document.getElementById('startBtn').classList.add('hidden');
   document.getElementById('stopBtn').classList.remove('hidden');
   html5QrCode = new Html5Qrcode('reader');
@@ -462,8 +482,8 @@ function startScanning() {
     .then(() => {
       scanning = true;
     })
-    .catch(() => {
-      toast('Camera error - check camera permissions', false);
+    .catch((err) => {
+      toast(cameraErrorMessage(err), false);
       document.getElementById('startBtn').classList.remove('hidden');
       document.getElementById('stopBtn').classList.add('hidden');
     });
